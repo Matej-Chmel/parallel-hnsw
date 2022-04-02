@@ -1,1 +1,1 @@
-# parallel-hnsw
+# Parallel HNSW
