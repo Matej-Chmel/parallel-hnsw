@@ -31,32 +31,32 @@ namespace chm {
 		this->recall = recall;
 	}
 
-	RecallTableConfig RecallTableConfig::getOpposite() const {
+	RecallTableConfig RecallTableConfig::getParallel(const size_t workersNum) const {
 		return RecallTableConfig(
 			this->dataset,
 			this->efConstruction,
 			this->efSearchValues,
 			this->mMax,
-			!this->parallel,
+			true,
 			this->seed,
-			this->workersNum
+			workersNum
 		);
 	}
 
 	RecallTableConfig::RecallTableConfig(
 		const DatasetPtr& dataset, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint mMax,
-		const bool parallel, const uint seed, const uint workersNum
+		const bool parallel, const uint seed, const size_t workersNum
 	) : dataset(dataset), efConstruction(efConstruction), efSearchValues(efSearchValues), mMax(mMax),
 		parallel(parallel), seed(seed), workersNum(workersNum) {}
 
 	RecallTableConfig::RecallTableConfig(
 		const fs::path& datasetPath, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint mMax,
-		const bool parallel, const uint seed, const uint workersNum
+		const uint seed
 	) : dataset(std::make_shared<Dataset>(datasetPath)), efConstruction(efConstruction),
-		efSearchValues(efSearchValues), mMax(mMax), parallel(parallel), seed(seed),
-		workersNum(workersNum) {}
+		efSearchValues(efSearchValues), mMax(mMax), parallel(false), seed(seed),
+		workersNum(1) {}
 
 	RecallTable::RecallTable(const RecallTableConfig& cfg) : buildElapsed(0), cfg(cfg), indexStr("") {}
 

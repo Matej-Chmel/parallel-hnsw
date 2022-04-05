@@ -12,9 +12,9 @@
 		"name": "test",
 		"angular": false,
 		"dim": 4,
-		"k": 10,
-		"testCount": 20,
-		"trainCount": 2000,
+		"k": 5,
+		"testCount": 10,
+		"trainCount": 200,
 		"seed": 100
 	}
 ]

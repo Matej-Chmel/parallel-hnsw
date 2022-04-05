@@ -473,7 +473,9 @@ namespace chm {
 	}
 
 	std::string ParallelIndex::getString() const {
-		return std::string("ParallelIndex") + AbstractIndex::getString();
+		std::stringstream s;
+		s << "ParallelIndex" << AbstractIndex::getString() << "[workers = " << this->workersNum << ']';
+		return s.str();
 	}
 
 	ParallelIndex::ParallelIndex(

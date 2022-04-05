@@ -27,18 +27,18 @@ namespace chm {
 		const uint mMax;
 		const bool parallel;
 		const uint seed;
-		const uint workersNum;
+		const size_t workersNum;
 
-		RecallTableConfig getOpposite() const;
+		RecallTableConfig getParallel(const size_t workersNum) const;
 		RecallTableConfig(
 			const DatasetPtr& dataset, const uint efConstruction,
 			const std::vector<uint>& efSearchValues, const uint mMax,
-			const bool parallel, const uint seed, const uint workersNum
+			const bool parallel, const uint seed, const size_t workersNum
 		);
 		RecallTableConfig(
 			const fs::path& datasetPath, const uint efConstruction,
 			const std::vector<uint>& efSearchValues, const uint mMax,
-			const bool parallel, const uint seed, const uint workersNum
+			const uint seed
 		);
 	};
 

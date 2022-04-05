@@ -8,14 +8,23 @@ namespace fs = std::filesystem;
 	constexpr auto SRC_DIR = "";
 #endif
 
+void runRecallTable(const chm::RecallTableConfig& cfg) {
+	chm::RecallTable table(cfg);
+	table.run(std::cout);
+	table.print(std::cout);
+}
+
 int main() {
 	try {
-		chm::RecallTable table(chm::RecallTableConfig(
+		chm::RecallTableConfig cfg(
 			fs::path(SRC_DIR) / "data" / "angular-d25-20000.bin",
-			200, {10, 50, 100, 500, 1000}, 16, false, 200, 1
-		));
-		table.run(std::cout);
-		table.print(std::cout);
+			200, {10, 50, 100, 500, 1000}, 16, 200
+		);
+		runRecallTable(cfg);
+		runRecallTable(cfg.getParallel(1));
+		runRecallTable(cfg.getParallel(2));
+		runRecallTable(cfg.getParallel(3));
+		runRecallTable(cfg.getParallel(4));
 
 	} catch(const std::exception& e) {
 		std::cerr << "[ERROR] " << e.what() << '\n';
