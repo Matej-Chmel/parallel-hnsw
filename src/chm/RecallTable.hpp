@@ -23,7 +23,7 @@ namespace chm {
 	struct RecallTableConfig {
 		const DatasetPtr dataset;
 		const uint efConstruction;
-		const std::vector<uint>& efSearchValues;
+		const std::vector<uint> efSearchValues;
 		const uint mMax;
 		const bool parallel;
 		const uint seed;

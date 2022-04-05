@@ -114,7 +114,7 @@ namespace chm {
 
 			timer.reset();
 			const auto queryRes = this->cfg.dataset->query(index, efSearch);
-			const auto elapsed = timer.getElapsed();
+			benchmark.setElapsed(timer.getElapsed());
 
 			s << "Completed in ";
 			benchmark.prettyPrintElapsed(s);
@@ -123,6 +123,7 @@ namespace chm {
 			timer.reset();
 			benchmark.setRecall(this->cfg.dataset->getRecall(queryRes));
 			const auto recallElapsed = timer.getElapsed();
+
 			s << "Recall " << benchmark.getRecall() << " computed in ";
 			prettyPrint(recallElapsed, s);
 			s << "\n\n";

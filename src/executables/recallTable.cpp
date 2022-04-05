@@ -11,8 +11,8 @@ namespace fs = std::filesystem;
 int main() {
 	try {
 		chm::RecallTable table(chm::RecallTableConfig(
-			fs::path(SRC_DIR) / "data" / "test.bin",
-			7, {3, 4, 6}, 3, false, 100, 1
+			fs::path(SRC_DIR) / "data" / "angular-d25-20000.bin",
+			200, {10, 50, 100, 500, 1000}, 16, false, 200, 1
 		));
 		table.run(std::cout);
 		table.print(std::cout);

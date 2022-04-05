@@ -1,11 +1,20 @@
 [
 	{
+		"name": "angular-d25-20000",
+		"angular": true,
+		"dim": 25,
+		"k": 10,
+		"testCount": 200,
+		"trainCount": 20000,
+		"seed": 104
+	},
+	{
 		"name": "test",
 		"angular": false,
 		"dim": 4,
-		"k": 3,
-		"testCount": 5,
-		"trainCount": 20,
+		"k": 10,
+		"testCount": 20,
+		"trainCount": 2000,
 		"seed": 100
 	}
 ]

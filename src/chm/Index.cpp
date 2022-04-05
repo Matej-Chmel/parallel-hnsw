@@ -154,7 +154,7 @@ namespace chm {
 
 	Space::Space(const size_t dim, const SpaceKind kind, const uint maxElemCount)
 		: distFunc(kind == SpaceKind::EUCLIDEAN ? euclid : innerProd), dim(dim),
-		elemData(maxElemCount * this->dim, 0.f), view(this->elemData.data(), this->dim, maxElemCount),
+		elemData(maxElemCount * dim, 0.f), view(this->elemData.data(), dim, maxElemCount),
 		normalize(kind == SpaceKind::ANGULAR) {}
 
 	bool VisitedSet::isMarked(const uint id) const {
@@ -253,7 +253,7 @@ namespace chm {
 			auto nHeap = this->getNearHeap(N, eData);
 			nHeap.push(Node(this->space.getDistance(eData, q.data), q.id));
 
-			if(N->len() > mLayer) {
+			if(nHeap.len() > mLayer) {
 				const auto nRes = this->selectNeighbors(mLayer, eData, nHeap);
 				this->writeNeighbors(e.id, lc, N, nRes);
 			} else
