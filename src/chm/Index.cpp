@@ -87,8 +87,7 @@ namespace chm {
 	}
 
 	NeighborsPtr ThreadSafeConnections::getNeighbors(const uint id, const uint lc) {
-		auto& m = this->getMutex(id);
-		std::unique_lock<std::mutex> lock(m);
+		std::unique_lock<std::mutex> lock(this->getMutex(id));
 		return std::make_shared<NeighborsCopy>(this->getLenIter(id, lc));
 	}
 
@@ -450,8 +449,7 @@ namespace chm {
 	}
 
 	void ParallelIndex::writeNeighbors(const uint id, const uint lc, const std::vector<Node>& R) {
-		auto& m = this->conn.getMutex(id);
-		std::unique_lock<std::mutex> lock(m);
+		std::unique_lock<std::mutex> lock(this->conn.getMutex(id));
 		auto N = this->conn.getWritableNeighbors(id, lc);
 		N.clear();
 
@@ -466,8 +464,7 @@ namespace chm {
 	}
 
 	void ParallelIndex::writeNeighbors(const uint id, const uint lc, NeighborsPtr, NearHeap& R) {
-		auto& m = this->conn.getMutex(id);
-		std::unique_lock<std::mutex> lock(m);
+		std::unique_lock<std::mutex> lock(this->conn.getMutex(id));
 		auto N = this->conn.getWritableNeighbors(id, lc);
 		N.clear();
 
@@ -555,8 +552,7 @@ namespace chm {
 				break;
 
 			const auto l = gen.getNextLevel();
-			auto& epMutex = this->index->getEntryPointMutex();
-			std::unique_lock<std::mutex> lock(epMutex);
+			std::unique_lock<std::mutex> lock(this->index->getEntryPointMutex());
 			const auto isNewEntry = l > this->index->getEntryLevel();
 
 			if(!isNewEntry)
