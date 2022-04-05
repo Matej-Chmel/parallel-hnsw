@@ -44,6 +44,7 @@ namespace chm {
 		size_t len() const;
 		void pop();
 		void push(const Node& n);
+		void reserve(const size_t c);
 		Node top();
 	};
 
@@ -132,7 +133,7 @@ namespace chm {
 
 	struct Element {
 		const float* const data;
-		uint id;
+		const uint id;
 
 		static Element fail();
 
@@ -199,14 +200,24 @@ namespace chm {
 		~QueryResults();
 		float getDistance(const size_t queryIdx, const size_t neighborIdx);
 		uint getID(const size_t queryIdx, const size_t neighborIdx);
-		const ArrayView<const uint>& getIDs() const;
+		const ArrayView<const uint> getIDs() const;
 		size_t getK() const;
 		size_t getQueryCount() const;
 		void push(FarHeap& h, const size_t queryIdx);
-		QueryResults(const size_t k, const uint queryCount);
+		QueryResults(const size_t k, const size_t queryCount);
 	};
 
 	using QueryResPtr = std::shared_ptr<QueryResults>;
+
+	class LevelGenerator {
+		std::uniform_real_distribution<double> dist;
+		std::default_random_engine gen;
+		const double mL;
+
+	public:
+		uint getNextLevel();
+		LevelGenerator(const double mL, const uint seed);
+	};
 
 	class AbstractIndex {
 		NearHeap getNearHeap(NeighborsPtr n, const float* const q);
@@ -258,16 +269,6 @@ namespace chm {
 	public:
 		Element getNextElement();
 		ThreadSafeFloatView(const uint idOffset, const ArrayView<const float>& v);
-	};
-
-	class LevelGenerator {
-		std::uniform_real_distribution<double> dist;
-		std::default_random_engine gen;
-		const double mL;
-
-	public:
-		uint getNextLevel();
-		LevelGenerator(const double mL, const uint seed);
 	};
 
 	class ParallelIndex : public AbstractIndex {
@@ -398,6 +399,11 @@ namespace chm {
 	inline void Heap<Cmp>::push(const Node& n) {
 		this->nodes.push_back(n);
 		std::push_heap(this->nodes.begin(), this->nodes.end(), Cmp());
+	}
+
+	template<class Cmp>
+	inline void Heap<Cmp>::reserve(const size_t c) {
+		this->nodes.reserve(c);
 	}
 
 	template<class Cmp>

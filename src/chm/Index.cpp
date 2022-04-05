@@ -61,7 +61,7 @@ namespace chm {
 
 	std::vector<uint>::iterator Connections::getLenIter(const uint id, const uint lc) {
 		return lc
-			? this->upperLayers[id].begin() + this->maxLen * (lc - 1)
+			? this->upperLayers[id].begin() + this->maxLen * (size_t(lc) - 1)
 			: this->layer0.begin() + this->maxLen0 * id;
 	}
 
@@ -87,7 +87,8 @@ namespace chm {
 	}
 
 	NeighborsPtr ThreadSafeConnections::getNeighbors(const uint id, const uint lc) {
-		std::unique_lock lock(this->getMutex(id));
+		auto& m = this->getMutex(id);
+		std::unique_lock<std::mutex> lock(m);
 		return std::make_shared<NeighborsCopy>(this->getLenIter(id, lc));
 	}
 
@@ -97,10 +98,7 @@ namespace chm {
 
 	ThreadSafeConnections::ThreadSafeConnections(
 		const uint maxElemCount, const uint mMax, const uint mMax0
-	) : Connections(maxElemCount, mMax, mMax0) {
-
-		this->mutexes.resize(maxElemCount);
-	}
+	) : Connections(maxElemCount, mMax, mMax0), mutexes(maxElemCount) {}
 
 	Element Element::fail() {
 		return Element(nullptr, 0);
@@ -201,7 +199,7 @@ namespace chm {
 		return this->ids.getVal(queryIdx, neighborIdx);
 	}
 
-	const ArrayView<const uint>& QueryResults::getIDs() const {
+	const ArrayView<const uint> QueryResults::getIDs() const {
 		return this->ids.asConst();
 	}
 
@@ -223,9 +221,17 @@ namespace chm {
 		}
 	}
 
-	QueryResults::QueryResults(const size_t k, const uint queryCount)
+	QueryResults::QueryResults(const size_t k, const size_t queryCount)
 		: distances(new float[k * queryCount], k, queryCount),
 		ids(new uint[k * queryCount], k, queryCount), owningData(true) {}
+
+	uint LevelGenerator::getNextLevel() {
+		return uint(-std::log(this->dist(this->gen)) * this->mL);
+	}
+
+	LevelGenerator::LevelGenerator(const double mL, const uint seed)
+		: dist(0.0, 1.0), gen(seed), mL(mL) {
+	}
 
 	NearHeap AbstractIndex::getNearHeap(NeighborsPtr n, const float* const q) {
 		NearHeap res;
@@ -292,6 +298,8 @@ namespace chm {
 					}
 				}
 		}
+
+		return W;
 	}
 
 	Node AbstractIndex::searchUpperLayer(const Node& ep, const uint lc, const float* const q) {
@@ -433,13 +441,6 @@ namespace chm {
 	ThreadSafeFloatView::ThreadSafeFloatView(const uint idOffset, const ArrayView<const float>& v)
 		: currID(0), idOffset(idOffset), v(v) {}
 
-	uint LevelGenerator::getNextLevel() {
-		return uint(-std::log(this->dist(this->gen)) * this->mL);
-	}
-
-	LevelGenerator::LevelGenerator(const double mL, const uint seed)
-		: dist(0.0, 1.0), gen(seed), mL(mL) {}
-
 	Connections* ParallelIndex::getConn() {
 		return &this->conn;
 	}
@@ -449,7 +450,8 @@ namespace chm {
 	}
 
 	void ParallelIndex::writeNeighbors(const uint id, const uint lc, const std::vector<Node>& R) {
-		std::unique_lock lock(this->conn.getMutex(id));
+		auto& m = this->conn.getMutex(id);
+		std::unique_lock<std::mutex> lock(m);
 		auto N = this->conn.getWritableNeighbors(id, lc);
 		N.clear();
 
@@ -464,7 +466,8 @@ namespace chm {
 	}
 
 	void ParallelIndex::writeNeighbors(const uint id, const uint lc, NeighborsPtr, NearHeap& R) {
-		std::unique_lock lock(this->conn.getMutex(id));
+		auto& m = this->conn.getMutex(id);
+		std::unique_lock<std::mutex> lock(m);
 		auto N = this->conn.getWritableNeighbors(id, lc);
 		N.clear();
 
@@ -494,25 +497,25 @@ namespace chm {
 			(void)elemView.getNextElement();
 
 		for(size_t i = 0; i < this->workersNum; i++)
-			workers.emplace_back(this, elemView, seedOffset + i);
+			workers.emplace_back(this, &elemView, seedOffset + uint(i));
 		for(auto& w : workers)
 			w.start();
 		for(auto& w : workers)
 			w.join();
 
-		this->elemCount += v.getElemCount();
+		this->elemCount += uint(v.getElemCount());
 	}
 
 	QueryResPtr ParallelIndex::queryBatch(
 		const ArrayView<const float>& v, const uint efSearch, const uint k
 	) {
 		ThreadSafeFloatView elemView(0, v);
-		auto res = std::make_shared<QueryResults>(k, v.getElemCount());
+		auto res = std::make_shared<QueryResults>(size_t(k), v.getElemCount());
 		std::vector<ParallelQueryWorker> workers;
 		workers.reserve(this->workersNum);
 
 		for(size_t i = 0; i < this->workersNum; i++)
-			workers.emplace_back(this, elemView, efSearch, k, res);
+			workers.emplace_back(this, &elemView, efSearch, k, res);
 		for(auto& w : workers)
 			w.start();
 		for(auto& w : workers)
@@ -544,11 +547,16 @@ namespace chm {
 
 	void ParallelInsertWorker::run() {
 		LevelGenerator gen(this->index->cfg.getML(), this->levelGenSeed);
-		Element e = this->elemView->getNextElement();
 
-		while(e.data) {
+		for(;;) {
+			const auto e = this->elemView->getNextElement();
+
+			if(!e.data)
+				break;
+
 			const auto l = gen.getNextLevel();
-			std::unique_lock lock(this->index->getEntryPointMutex());
+			auto& epMutex = this->index->getEntryPointMutex();
+			std::unique_lock<std::mutex> lock(epMutex);
 			const auto isNewEntry = l > this->index->getEntryLevel();
 
 			if(!isNewEntry)
@@ -566,21 +574,27 @@ namespace chm {
 	) : ParallelWorker(index, elemView), levelGenSeed(levelGenSeed) {}
 
 	void ParallelQueryWorker::run() {
-		Element e = this->elemView->getNextElement();
-
 		if(this->index->space.normalize) {
 			std::vector<float> normQuery(this->index->space.dim, 0.f);
 
-			while(e.data) {
+			for(;;) {
+				const auto e = this->elemView->getNextElement();
+
+				if(!e.data)
+					break;
+
 				this->index->space.normalizeData(e.data, normQuery.data());
 				res->push(this->index->query(normQuery.data(), this->efSearch, this->k), e.id);
-				e = this->elemView->getNextElement();
 			}
 
 		} else {
-			while(e.data) {
+			for(;;) {
+				const auto e = this->elemView->getNextElement();
+
+				if(!e.data)
+					break;
+
 				res->push(this->index->query(e.data, this->efSearch, this->k), e.id);
-				e = this->elemView->getNextElement();
 			}
 		}
 	}

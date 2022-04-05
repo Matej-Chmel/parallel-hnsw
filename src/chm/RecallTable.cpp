@@ -43,19 +43,20 @@ namespace chm {
 		);
 	}
 
-	RecallTableConfig(
+	RecallTableConfig::RecallTableConfig(
 		const DatasetPtr& dataset, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint mMax,
 		const bool parallel, const uint seed, const uint workersNum
 	) : dataset(dataset), efConstruction(efConstruction), efSearchValues(efSearchValues), mMax(mMax),
 		parallel(parallel), seed(seed), workersNum(workersNum) {}
 
-	RecallTableConfig(
+	RecallTableConfig::RecallTableConfig(
 		const fs::path& datasetPath, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint mMax,
 		const bool parallel, const uint seed, const uint workersNum
-	) : dataset(datasetPath), efConstruction(efConstruction), efSearchValues(efSearchValues),
-		mMax(mMax), parallel(parallel), seed(seed), workersNum(workersNum)
+	) : dataset(std::make_shared<Dataset>(datasetPath)), efConstruction(efConstruction),
+		efSearchValues(efSearchValues), mMax(mMax), parallel(parallel), seed(seed),
+		workersNum(workersNum) {}
 
 	RecallTable::RecallTable(const RecallTableConfig& cfg) : buildElapsed(0), cfg(cfg), indexStr("") {}
 

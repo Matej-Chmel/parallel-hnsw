@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from .Dataset import Dataset
+from Dataset import Dataset
 
 def run():
 	srcDir = Path(__file__).parent.parent
