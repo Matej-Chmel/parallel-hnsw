@@ -1,4 +1,5 @@
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 #include "Index.hpp"
 
@@ -101,6 +102,10 @@ namespace chm {
 		this->mutexes.resize(maxElemCount);
 	}
 
+	Element Element::fail() {
+		return Element(nullptr, 0);
+	}
+
 	Element::Element(const float* const data, const uint id) : data(data), id(id) {}
 
 	float Space::getNorm(const float* const data) const {
@@ -194,6 +199,10 @@ namespace chm {
 
 	uint QueryResults::getID(const size_t queryIdx, const size_t neighborIdx) {
 		return this->ids.getVal(queryIdx, neighborIdx);
+	}
+
+	const ArrayView<const uint>& QueryResults::getIDs() const {
+		return this->ids.asConst();
 	}
 
 	size_t QueryResults::getK() const {
@@ -336,6 +345,31 @@ namespace chm {
 		return R;
 	}
 
+	size_t AbstractIndex::setupFirstElement(const ArrayView<const float>& v, LevelGenerator& gen) {
+		if(!this->elemCount) {
+			this->elemCount = 1;
+			this->entryLevel = gen.getNextLevel();
+			this->getConn()->init(0, this->entryLevel);
+			this->space.push(Element(v.getData(0), 0));
+			return 1;
+		}
+		return 0;
+	}
+
+	AbstractIndex::AbstractIndex(IndexConfig cfg, const size_t dim, const SpaceKind spaceKind)
+		: elemCount(0), entryID(0), entryLevel(0), cfg(cfg),
+		space(dim, spaceKind, this->cfg.maxElemCount) {}
+
+	uint AbstractIndex::getEntryLevel() const {
+		return this->entryLevel;
+	}
+
+	std::string AbstractIndex::getString() const {
+		std::stringstream s;
+		s << "(efConstruction = " << this->cfg.efConstruction << ", mMax = " << this->cfg.mMax << ')';
+		return s.str();
+	}
+
 	void AbstractIndex::insertWithLevel(const Element& q, const uint l) {
 		this->getConn()->init(q.id, l);
 		this->space.push(q);
@@ -361,6 +395,11 @@ namespace chm {
 		}
 	}
 
+	void AbstractIndex::setEntry(const uint id, const uint level) {
+		this->entryID = id;
+		this->entryLevel = level;
+	}
+
 	FarHeap AbstractIndex::query(const float* const q, const uint efSearch, const uint k) {
 		const auto efMax = std::max(efSearch, k);
 		Node ep(this->space.getDistance(this->entryID, q), this->entryID);
@@ -380,23 +419,19 @@ namespace chm {
 		return W;
 	}
 
-	void AbstractIndex::setEntry(const uint id, const uint level) {
-		this->entryID = id;
-		this->entryLevel = level;
-	}
-
-	AbstractIndex::AbstractIndex(IndexConfig cfg, const size_t dim, const SpaceKind spaceKind)
-		: cfg(cfg), elemCount(0), entryID(0), entryLevel(0),
-		space(dim, spaceKind, this->cfg.maxElemCount) {}
-
 	Element ThreadSafeFloatView::getNextElement() {
 		std::unique_lock<std::mutex> lock(this->m);
-		Element res(this->v.getData(this->currID), this->currID);
+
+		if(this->currID == v.getElemCount())
+			return Element::fail();
+
+		Element res(this->v.getData(this->currID), this->idOffset + uint(this->currID));
 		this->currID++;
 		return res;
 	}
 
-	ThreadSafeFloatView::ThreadSafeFloatView(const ArrayView<float>& v) : currID(0), v(v) {}
+	ThreadSafeFloatView::ThreadSafeFloatView(const uint idOffset, const ArrayView<const float>& v)
+		: currID(0), idOffset(idOffset), v(v) {}
 
 	uint LevelGenerator::getNextLevel() {
 		return uint(-std::log(this->dist(this->gen)) * this->mL);
@@ -437,46 +472,123 @@ namespace chm {
 			N.push(R.extractTop().id);
 	}
 
+	std::string ParallelIndex::getString() const {
+		return std::string("ParallelIndex") + AbstractIndex::getString();
+	}
+
 	ParallelIndex::ParallelIndex(
 		const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
 		const SpaceKind spaceKind
 	) : AbstractIndex(cfg, dim, spaceKind),
-		conn(this->cfg.maxElemCount, this->cfg.mMax, this->cfg.mMax0), levelGenSeed(levelGenSeed) {}
+		conn(this->cfg.maxElemCount, this->cfg.mMax, this->cfg.mMax0), levelGenSeed(levelGenSeed),
+		workersNum(1) {}
 
-	void ParallelIndex::push(const ArrayView<float>& v) {
+	void ParallelIndex::push(const ArrayView<const float>& v) {
+		ThreadSafeFloatView elemView(this->elemCount, v);
+		LevelGenerator gen(this->cfg.getML(), this->levelGenSeed);
+		const auto seedOffset = this->levelGenSeed + 1;
+		std::vector<ParallelInsertWorker> workers;
+		workers.reserve(this->workersNum);
 
+		if(this->setupFirstElement(v, gen))
+			(void)elemView.getNextElement();
+
+		for(size_t i = 0; i < this->workersNum; i++)
+			workers.emplace_back(this, elemView, seedOffset + i);
+		for(auto& w : workers)
+			w.start();
+		for(auto& w : workers)
+			w.join();
+
+		this->elemCount += v.getElemCount();
 	}
 
 	QueryResPtr ParallelIndex::queryBatch(
-		const ArrayView<float>& v, const uint efSearch, const uint k
+		const ArrayView<const float>& v, const uint efSearch, const uint k
 	) {
+		ThreadSafeFloatView elemView(0, v);
+		auto res = std::make_shared<QueryResults>(k, v.getElemCount());
+		std::vector<ParallelQueryWorker> workers;
+		workers.reserve(this->workersNum);
 
+		for(size_t i = 0; i < this->workersNum; i++)
+			workers.emplace_back(this, elemView, efSearch, k, res);
+		for(auto& w : workers)
+			w.start();
+		for(auto& w : workers)
+			w.join();
+
+		return res;
+	}
+
+	void ParallelIndex::setWorkersNum(const size_t n) {
+		if(!n)
+			throw std::runtime_error("Workers number must be positive.");
+		this->workersNum = n;
+	}
+
+	std::mutex& ParallelIndex::getEntryPointMutex() {
+		return this->entryPointMutex;
+	}
+
+	void ParallelWorker::join() {
+		this->t.join();
+	}
+
+	ParallelWorker::ParallelWorker(ParallelIndex* const index, ThreadSafeFloatView* const elemView)
+		: elemView(elemView), index(index), t{} {}
+
+	void ParallelWorker::start() {
+		this->t = std::thread(&ParallelWorker::run, this);
+	}
+
+	void ParallelInsertWorker::run() {
+		LevelGenerator gen(this->index->cfg.getML(), this->levelGenSeed);
+		Element e = this->elemView->getNextElement();
+
+		while(e.data) {
+			const auto l = gen.getNextLevel();
+			std::unique_lock lock(this->index->getEntryPointMutex());
+			const auto isNewEntry = l > this->index->getEntryLevel();
+
+			if(!isNewEntry)
+				lock.unlock();
+
+			this->index->insertWithLevel(e, l);
+
+			if(isNewEntry)
+				this->index->setEntry(e.id, l);
+		}
 	}
 
 	ParallelInsertWorker::ParallelInsertWorker(
-		ParallelIndex* const index, ThreadSafeFloatView* const view, const uint levelGenSeed
-	) : index(index), levelGenSeed(levelGenSeed), view(view) {}
+		ParallelIndex* const index, ThreadSafeFloatView* const elemView, const uint levelGenSeed
+	) : ParallelWorker(index, elemView), levelGenSeed(levelGenSeed) {}
 
-	void ParallelInsertWorker::run() {
+	void ParallelQueryWorker::run() {
+		Element e = this->elemView->getNextElement();
 
-	}
+		if(this->index->space.normalize) {
+			std::vector<float> normQuery(this->index->space.dim, 0.f);
 
-	std::thread ParallelInsertWorker::start() {
-		return std::thread(&ParallelInsertWorker::run, this);
+			while(e.data) {
+				this->index->space.normalizeData(e.data, normQuery.data());
+				res->push(this->index->query(normQuery.data(), this->efSearch, this->k), e.id);
+				e = this->elemView->getNextElement();
+			}
+
+		} else {
+			while(e.data) {
+				res->push(this->index->query(e.data, this->efSearch, this->k), e.id);
+				e = this->elemView->getNextElement();
+			}
+		}
 	}
 
 	ParallelQueryWorker::ParallelQueryWorker(
-		ParallelIndex* const index, ThreadSafeFloatView* const view,
-		const uint efSearch, const uint k
-	) : efSearch(efSearch), index(index), k(k), view(view) {}
-
-	void ParallelQueryWorker::run() {
-
-	}
-
-	std::thread ParallelQueryWorker::start() {
-		return std::thread(&ParallelQueryWorker::run, this);
-	}
+		ParallelIndex* const index, ThreadSafeFloatView* const elemView,
+		const uint efSearch, const uint k, const QueryResPtr res
+	) : ParallelWorker(index, elemView), efSearch(efSearch), k(k), res(res) {}
 
 	Connections* SequentialIndex::getConn() {
 		return &this->conn;
@@ -506,25 +618,24 @@ namespace chm {
 			N->push(R.extractTop().id);
 	}
 
-	void SequentialIndex::push(const ArrayView<float>& v) {
-		size_t i = 0;
+	std::string SequentialIndex::getString() const {
+		return std::string("SequentialIndex") + AbstractIndex::getString();
+	}
 
-		if(!this->elemCount) {
-			this->elemCount = 1;
-			this->entryLevel = this->gen.getNextLevel();
-			i = 1;
-			this->conn.init(0, this->entryLevel);
-			this->space.push(Element(v.getData(0), 0));
-		}
+	void SequentialIndex::push(const ArrayView<const float>& v) {
+		for(auto i = this->setupFirstElement(v, this->gen); i < v.getElemCount(); i++) {
+			const auto l = this->gen.getNextLevel();
+			this->insertWithLevel(Element(v.getData(i), this->elemCount), l);
 
-		for(; i < v.getElemCount(); i++) {
-			this->insertWithLevel(Element(v.getData(i), this->elemCount), this->gen.getNextLevel());
+			if(l > this->entryLevel)
+				this->setEntry(this->elemCount, l);
+
 			this->elemCount++;
 		}
 	}
 
 	QueryResPtr SequentialIndex::queryBatch(
-		const ArrayView<float>& v, const uint efSearch, const uint k
+		const ArrayView<const float>& v, const uint efSearch, const uint k
 	) {
 		auto res = std::make_shared<QueryResults>(k, v.getElemCount());
 
@@ -551,7 +662,7 @@ namespace chm {
 		conn(this->cfg.maxElemCount, this->cfg.mMax, this->cfg.mMax0),
 		gen(this->cfg.getML(), levelGenSeed) {}
 
-	float getRecall(const ArrayView<uint>& correctIDs, const ArrayView<uint>& foundIDs) {
+	float getRecall(const ArrayView<const uint>& correctIDs, const ArrayView<const uint>& foundIDs) {
 		size_t hits = 0;
 		std::unordered_set<uint> correctSet;
 		correctSet.reserve(correctIDs.getDim());

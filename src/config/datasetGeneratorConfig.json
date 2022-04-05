@@ -1,0 +1,11 @@
+[
+	{
+		"name": "test",
+		"angular": false,
+		"dim": 4,
+		"k": 3,
+		"testCount": 5,
+		"trainCount": 20,
+		"seed": 100
+	}
+]

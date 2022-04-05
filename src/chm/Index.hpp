@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <string>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -118,6 +119,7 @@ namespace chm {
 
 	public:
 		ArrayView(T* data, const size_t dim, const size_t elemCount);
+		ArrayView<const T> asConst() const;
 		void fillSet(std::unordered_set<uint>& set, const size_t elemIdx) const;
 		T* getData(const size_t elemIdx);
 		const T* const getData(const size_t elemIdx) const;
@@ -131,6 +133,8 @@ namespace chm {
 	struct Element {
 		const float* const data;
 		uint id;
+
+		static Element fail();
 
 		Element(const float* const data, const uint id);
 	};
@@ -195,6 +199,7 @@ namespace chm {
 		~QueryResults();
 		float getDistance(const size_t queryIdx, const size_t neighborIdx);
 		uint getID(const size_t queryIdx, const size_t neighborIdx);
+		const ArrayView<const uint>& getIDs() const;
 		size_t getK() const;
 		size_t getQueryCount() const;
 		void push(FarHeap& h, const size_t queryIdx);
@@ -213,17 +218,13 @@ namespace chm {
 		std::vector<Node> selectNeighbors(const uint M, const float* const q, NearHeap& W);
 
 	protected:
-		IndexConfig cfg;
 		uint elemCount;
 		uint entryID;
 		uint entryLevel;
-		Space space;
 
 		virtual Connections* getConn() = 0;
 		virtual VisitedPtr getVisitedSet(const Node& ep) = 0;
-		void insertWithLevel(const Element& q, const uint l);
-		FarHeap query(const float* const q, const uint efSearch, const uint k);
-		void setEntry(const uint id, const uint level);
+		size_t setupFirstElement(const ArrayView<const float>& v, LevelGenerator& gen);
 		virtual void writeNeighbors(const uint id, const uint lc, const std::vector<Node>& R) = 0;
 		virtual void writeNeighbors(
 			const uint id, const uint lc, NeighborsPtr N, const std::vector<Node>& R
@@ -231,21 +232,32 @@ namespace chm {
 		virtual void writeNeighbors(const uint id, const uint lc, NeighborsPtr N, NearHeap& R) = 0;
 
 	public:
+		IndexConfig cfg;
+		Space space;
+
 		AbstractIndex(IndexConfig cfg, const size_t dim, const SpaceKind spaceKind);
-		virtual void push(const ArrayView<float>& v) = 0;
+		uint getEntryLevel() const;
+		virtual std::string getString() const;
+		void insertWithLevel(const Element& q, const uint l);
+		void setEntry(const uint id, const uint level);
+		virtual void push(const ArrayView<const float>& v) = 0;
+		FarHeap query(const float* const q, const uint efSearch, const uint k);
 		virtual QueryResPtr queryBatch(
-			const ArrayView<float>& v, const uint efSearch, const uint k
+			const ArrayView<const float>& v, const uint efSearch, const uint k
 		) = 0;
 	};
 
+	using IndexPtr = std::shared_ptr<AbstractIndex>;
+
 	class ThreadSafeFloatView {
 		size_t currID;
+		uint idOffset;
 		std::mutex m;
-		const ArrayView<float> v;
+		const ArrayView<const float> v;
 
 	public:
 		Element getNextElement();
-		ThreadSafeFloatView(const ArrayView<float>& v);
+		ThreadSafeFloatView(const uint idOffset, const ArrayView<const float>& v);
 	};
 
 	class LevelGenerator {
@@ -262,6 +274,7 @@ namespace chm {
 		ThreadSafeConnections conn;
 		std::mutex entryPointMutex;
 		uint levelGenSeed;
+		size_t workersNum;
 
 		Connections* getConn() override;
 		VisitedPtr getVisitedSet(const Node& ep) override;
@@ -272,40 +285,57 @@ namespace chm {
 		void writeNeighbors(const uint id, const uint lc, NeighborsPtr, NearHeap& R) override;
 
 	public:
+		std::mutex& getEntryPointMutex();
+		std::string getString() const override;
 		ParallelIndex(
 			const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
 			const SpaceKind spaceKind
 		);
-		void push(const ArrayView<float>& v) override;
-		QueryResPtr queryBatch(const ArrayView<float>& v, const uint efSearch, const uint k) override;
+		void push(const ArrayView<const float>& v) override;
+		QueryResPtr queryBatch(const ArrayView<const float>& v, const uint efSearch, const uint k) override;
+		void setWorkersNum(const size_t n);
 	};
 
-	class ParallelInsertWorker {
+	class ParallelWorker {
+		std::thread t;
+
+	protected:
+		ThreadSafeFloatView* const elemView;
 		ParallelIndex* const index;
+
+		virtual void run() = 0;
+
+	public:
+		void join();
+		ParallelWorker(ParallelIndex* const index, ThreadSafeFloatView* const elemView);
+		void start();
+	};
+
+	class ParallelInsertWorker : public ParallelWorker {
 		const uint levelGenSeed;
-		ThreadSafeFloatView* const view;
+
+	protected:
+		void run() override;
 
 	public:
 		ParallelInsertWorker(
-			ParallelIndex* const index, ThreadSafeFloatView* const view, const uint levelGenSeed
+			ParallelIndex* const index, ThreadSafeFloatView* const elemView, const uint levelGenSeed
 		);
-		void run();
-		std::thread start();
 	};
 
-	class ParallelQueryWorker {
+	class ParallelQueryWorker : public ParallelWorker {
 		const uint efSearch;
-		ParallelIndex* const index;
 		const uint k;
-		ThreadSafeFloatView* const view;
+		const QueryResPtr res;
+
+	protected:
+		void run() override;
 
 	public:
 		ParallelQueryWorker(
-			ParallelIndex* const index, ThreadSafeFloatView* const view,
-			const uint efSearch, const uint k
+			ParallelIndex* const index, ThreadSafeFloatView* const elemView,
+			const uint efSearch, const uint k, const QueryResPtr res
 		);
-		void run();
-		std::thread start();
 	};
 
 	class SequentialIndex : public AbstractIndex {
@@ -321,15 +351,16 @@ namespace chm {
 		void writeNeighbors(const uint id, const uint lc, NeighborsPtr N, NearHeap& R) override;
 
 	public:
-		void push(const ArrayView<float>& v) override;
-		QueryResPtr queryBatch(const ArrayView<float>& v, const uint efSearch, const uint k) override;
+		std::string getString() const override;
+		void push(const ArrayView<const float>& v) override;
+		QueryResPtr queryBatch(const ArrayView<const float>& v, const uint efSearch, const uint k) override;
 		SequentialIndex(
 			const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
 			const SpaceKind spaceKind
 		);
 	};
 
-	float getRecall(const ArrayView<uint>& correctIDs, const ArrayView<uint>& foundIDs);
+	float getRecall(const ArrayView<const uint>& correctIDs, const ArrayView<const uint>& foundIDs);
 
 	template<class Cmp>
 	inline Node Heap<Cmp>::extractTop() {
@@ -377,6 +408,11 @@ namespace chm {
 	template<typename T>
 	inline ArrayView<T>::ArrayView(T* data, const size_t dim, const size_t elemCount)
 		: data(data), dim(dim), elemCount(elemCount) {}
+
+	template<typename T>
+	inline ArrayView<const T> ArrayView<T>::asConst() const {
+		return ArrayView<const T>(this->data, this->dim, this->elemCount);
+	}
 
 	template<typename T>
 	inline void ArrayView<T>::fillSet(std::unordered_set<uint>& set, const size_t elemIdx) const {
