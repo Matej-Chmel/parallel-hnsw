@@ -14,25 +14,25 @@ class Args:
 	clean: bool
 	ignorePythonVersion: bool
 
-def buildNativeLib(executable: Path, src: Path):
+def buildNativeLib(executable: Path, repoDir: Path):
 	print("Building build system for native library.")
-	subprocess.call([executable, Path("scripts", "formatCMakeTemplates.py")], cwd=src)
-	cmakeBuildDir = src / "cmakeBuild"
+	subprocess.call([executable, Path("src", "scripts", "formatCMakeTemplates.py")], cwd=repoDir)
+	cmakeBuildDir = repoDir / "cmakeBuild"
 	cmakeBuildDir.mkdir(exist_ok=True)
 	subprocess.call(["cmake", Path("..")], cwd=cmakeBuildDir)
 	print("Build system for native library built.")
 
-def buildVirtualEnv(src: Path):
+def buildVirtualEnv(repoDir: Path):
 	print("Building virtual environment.")
-	subprocess.call([sys.executable, "-m", "venv", ".venv"], cwd=src)
-	executable = getVirtualEnvExecutable(src)
+	subprocess.call([sys.executable, "-m", "venv", ".venv"], cwd=repoDir)
+	executable = getVirtualEnvExecutable(repoDir)
 
 	if not executable.exists():
 		raise AppError("Python virtual environment executable not found.")
 
 	cmdline = [executable, "-m", "pip", "install"]
-	subprocess.call(cmdline + ["--upgrade", "pip"], cwd=src)
-	subprocess.call(cmdline + ["-r", Path("scripts") / "requirements.txt"], cwd=src)
+	subprocess.call(cmdline + ["--upgrade", "pip"], cwd=repoDir)
+	subprocess.call(cmdline + ["-r", Path("src", "scripts", "requirements.txt")], cwd=repoDir)
 	print("Virtual environment built.")
 	return executable
 
@@ -68,7 +68,7 @@ def getVirtualEnvExecutable(repoDir: Path):
 	if onWindows():
 		p = p.with_suffix(".exe")
 
-	return p
+	return p.absolute()
 
 def onWindows():
 	return platform.system().strip().lower() == "windows"
@@ -77,9 +77,9 @@ def run():
 	args = getArgs()
 	cleanProject(args)
 	checkPythonVersion(args)
-	src = Path(__file__).parent.parent
-	executable = buildVirtualEnv(src)
-	buildNativeLib(executable, src)
+	repoDir = Path(__file__).parents[2]
+	executable = buildVirtualEnv(repoDir)
+	buildNativeLib(executable, repoDir)
 	print("Completed.")
 
 def main():

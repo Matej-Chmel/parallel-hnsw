@@ -2,13 +2,13 @@ from pathlib import Path
 import shutil
 
 def cleanProject(deleteVenv: bool):
-	src = Path(__file__).parent.parent
+	repoDir = Path(__file__).parents[2]
 
-	for path in ["__pycache__"]:
-		deleteDir(src / path)
+	for path in ["__pycache__", "cmakeBuild", Path("src", "scripts", "__pycache__")]:
+		deleteDir(repoDir / path)
 
 	if deleteVenv:
-		deleteDir(src.parent / ".venv")
+		deleteDir(repoDir / ".venv")
 
 def deleteDir(p: Path):
 	pathStr = f"[{p}] "
