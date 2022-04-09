@@ -7,8 +7,7 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-#include "euclideanDistance.hpp"
-#include "innerProduct.hpp"
+#include "DistanceFunction.hpp"
 
 namespace chm {
 	using uint = unsigned int;

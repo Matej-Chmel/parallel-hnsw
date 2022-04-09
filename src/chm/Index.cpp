@@ -1,6 +1,8 @@
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include "euclideanDistance.hpp"
+#include "innerProduct.hpp"
 #include "Index.hpp"
 
 namespace chm {

@@ -7,10 +7,16 @@ int main() {
 
 	try {
 		const auto dataset = std::make_shared<Dataset>(
-			4, 3, 100, SpaceKind::EUCLIDEAN, SIMDType::BEST, 50, 200
+			25, 10, 104, SpaceKind::ANGULAR, SIMDType::BEST, 200, 20000
 		);
-		Benchmark b(dataset, 8, {3, 4, 6}, 10, 101, 2, false, 1, 1);
-		b.run().print(std::cout);
+		Benchmark b(
+			dataset, 200,
+			{10, 20, 40, 80, 120, 300, 500},
+			200, 16, false, 2
+		);
+
+		b.run(std::cout).print(std::cout);
+		b.getParallel(2).run(std::cout).print(std::cout);
 
 	} catch(const std::exception& e) {
 		std::cerr << "[ERROR] " << e.what() << '\n';

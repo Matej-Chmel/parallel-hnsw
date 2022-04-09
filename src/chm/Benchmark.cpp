@@ -5,8 +5,60 @@
 
 namespace chm {
 	constexpr std::streamsize EF_SEARCH_WIDTH = 8;
-	constexpr std::streamsize ELAPSED_PRETTY_WIDTH = 29;
-	constexpr std::streamsize RECALL_WIDTH = 12;
+	constexpr std::streamsize ELAPSED_PRETTY_WIDTH = 22;
+	constexpr std::streamsize RECALL_WIDTH = 13;
+
+	chr::nanoseconds getMaxElapsed(const std::vector<QueryBenchmark>& v) {
+		if(v.empty())
+			throw std::runtime_error("No benchmarks were run.");
+
+		auto max = v[0].elapsed;
+
+		for(size_t i = 1; i < v.size(); i++)
+			if(v[i].elapsed > max)
+				max = v[i].elapsed;
+
+		return max;
+	}
+
+	chr::nanoseconds getMinElapsed(const std::vector<QueryBenchmark>& v) {
+		if(v.empty())
+			throw std::runtime_error("No benchmarks were run.");
+
+		auto min = v[0].elapsed;
+
+		for(size_t i = 1; i < v.size(); i++)
+			if(v[i].elapsed < min)
+				min = v[i].elapsed;
+
+		return min;
+	}
+
+	float getMaxRecall(const std::vector<QueryBenchmark>& v) {
+		if(v.empty())
+			throw std::runtime_error("No benchmarks were run.");
+
+		auto max = v[0].recall;
+
+		for(size_t i = 1; i < v.size(); i++)
+			if(v[i].recall > max)
+				max = v[i].recall;
+
+		return max;
+	}
+
+	float getMinRecall(const std::vector<QueryBenchmark>& v) {
+		if(v.empty())
+			throw std::runtime_error("No benchmarks were run.");
+
+		auto min = v[0].recall;
+
+		for(size_t i = 1; i < v.size(); i++)
+			if(v[i].recall < min)
+				min = v[i].recall;
+
+		return min;
+	}
 
 	BenchmarkStats::BenchmarkStats(
 		const chr::nanoseconds& avg, const chr::nanoseconds& max, const chr::nanoseconds& min
@@ -23,9 +75,9 @@ namespace chm {
 
 	Benchmark::Benchmark(
 		const DatasetPtr& dataset, const uint efConstruction,
-		const std::vector<uint>& efSearchValues, const uint k, const uint levelGenSeed,
+		const std::vector<uint>& efSearchValues, const uint levelGenSeed,
 		const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount
-	) : cfg(efConstruction, mMax, dataset->trainCount), dataset(dataset), k(k), indexStr(""),
+	) : cfg(efConstruction, mMax, uint(dataset->trainCount)), dataset(dataset), indexStr(""),
 		levelGenSeed(levelGenSeed), parallel(parallel), runsCount(runsCount), workerCount(workerCount) {
 
 		for(const auto& efSearch : efSearchValues)
@@ -49,7 +101,7 @@ namespace chm {
 			efSearchValues.emplace_back(p.first);
 
 		return Benchmark(
-			this->dataset, this->cfg.efConstruction, efSearchValues, this->k, this->levelGenSeed,
+			this->dataset, this->cfg.efConstruction, efSearchValues, this->levelGenSeed,
 			this->cfg.mMax, true, this->runsCount, workerCount
 		);
 	}
@@ -57,7 +109,8 @@ namespace chm {
 	std::string Benchmark::getString() const {
 		std::stringstream s;
 		s << this->dataset->getString() << '\n' << this->indexStr << '\n' <<
-			"Runs: " << this->runsCount;
+			"Runs: " << this->runsCount << "\nBruteforce (build + search): ";
+		prettyPrint(this->dataset->getBruteforceElapsed(), s);
 		return s.str();
 	}
 
@@ -75,11 +128,11 @@ namespace chm {
 
 			res[p.first] = QueryBenchmarkStats(
 				sumElapsed / p.second.size(),
-				std::max_element(p.second.begin(), p.second.end(), MaxQueryElapsedCmp())->elapsed,
-				std::min_element(p.second.begin(), p.second.end(), MinQueryElapsedCmp())->elapsed,
+				getMaxElapsed(p.second),
+				getMinElapsed(p.second),
 				sumRecall / p.second.size(),
-				std::max_element(p.second.begin(), p.second.end(), MaxQueryRecallCmp())->recall,
-				std::min_element(p.second.begin(), p.second.end(), MinQueryRecallCmp())->recall
+				getMaxRecall(p.second),
+				getMinRecall(p.second)
 			);
 		}
 
@@ -129,20 +182,28 @@ namespace chm {
 			printField("\n", s, 1);
 		}
 
+		s << '\n';
 		s.copyfmt(streamState);
 	}
 
-	Benchmark& Benchmark::run() {
+	Benchmark& Benchmark::run(std::ostream& s) {
 		Timer timer{};
 
 		for(size_t buildIdx = 0; buildIdx < this->runsCount; buildIdx++) {
+			s << "Building index.\n";
+
 			timer.reset();
 			auto index = this->dataset->getIndex(
 				this->cfg.efConstruction, this->cfg.mMax, this->parallel,
 				this->levelGenSeed, this->workerCount
 			);
 			this->dataset->build(index);
-			this->buildElapsed.push_back(timer.getElapsed());
+			const auto buildElapsed = timer.getElapsed();
+
+			this->buildElapsed.push_back(buildElapsed);
+			s << "Index built in ";
+			prettyPrint(buildElapsed, s);
+			s << "\n\n";
 
 			const auto indexStr = index->getString();
 
@@ -155,10 +216,16 @@ namespace chm {
 
 			for(size_t queryIdx = 0; queryIdx < this->runsCount; queryIdx++)
 				for(auto& p : this->efsToBenchmarks) {
+					s << "Querying with efSearch = " << p.first << ".\n";
+
 					timer.reset();
 					auto queryRes = this->dataset->query(index, p.first);
 					const auto elapsed = timer.getElapsed();
 					p.second.emplace_back(elapsed, this->dataset->getRecall(queryRes->getIDs()));
+
+					s << "Completed in ";
+					prettyPrint(elapsed, s);
+					s << "\n\n";
 				}
 		}
 

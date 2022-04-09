@@ -10,12 +10,12 @@ namespace chm {
 		std::sort(this->nodes.begin(), this->nodes.end(), FarHeapCmp());
 
 		for(size_t i = 0; i < k; i++)
-			res->set(e.id, i, this->nodes[i].id, this->nodes[i].dist);
+			res->set(e.id, i, this->nodes[i].dist, this->nodes[i].id);
 	}
 
 	BruteforceIndex::BruteforceIndex(
 		const size_t dim, const size_t maxElemCount, const SIMDType simdType, const SpaceKind spaceKind
-	) : space(dim, spaceKind, maxElemCount, simdType) {
+	) : elemCount(0), space(dim, spaceKind, uint(maxElemCount), simdType) {
 
 		this->nodes.reserve(maxElemCount);
 	}
@@ -25,7 +25,7 @@ namespace chm {
 		auto res = std::make_shared<QueryResults>(k, queryCount);
 
 		for(size_t i = 0; i < queryCount; i++)
-			this->queryOne(Element(v.getData(i), i), k, res);
+			this->queryOne(Element(v.getData(i), uint(i)), k, res);
 
 		return res;
 	}
@@ -78,7 +78,7 @@ namespace chm {
 		const uint efConstruction, const uint mMax, const bool parallel,
 		const uint seed, const size_t workerCount
 	) const {
-		const IndexConfig cfg(efConstruction, mMax, this->trainCount);
+		const IndexConfig cfg(efConstruction, mMax, uint(this->trainCount));
 		if(parallel) {
 			auto res = std::make_shared<ParallelIndex>(
 				cfg, this->dim, seed, this->spaceKind, this->simdType
@@ -98,7 +98,7 @@ namespace chm {
 			throw std::runtime_error("Bruteforce wasn't computed.");
 
 		return chm::getRecall(
-			ArrayView<const uint>(this->neighbors.data(), 1, this->neighbors.size()), foundIDs
+			ArrayView<const uint>(this->neighbors.data(), this->k, this->testCount), foundIDs
 		);
 	}
 
@@ -112,7 +112,7 @@ namespace chm {
 
 	QueryResPtr Dataset::query(const IndexPtr& index, const uint efSearch) const {
 		return index->queryBatch(
-			ArrayView<const float>(this->test.data(), this->dim, this->testCount), efSearch, this->k
+			ArrayView<const float>(this->test.data(), this->dim, this->testCount), efSearch, uint(this->k)
 		);
 	}
 

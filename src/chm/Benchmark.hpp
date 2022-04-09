@@ -11,6 +11,7 @@ namespace chm {
 		chr::nanoseconds max;
 		chr::nanoseconds min;
 
+		BenchmarkStats() = default;
 		BenchmarkStats(
 			const chr::nanoseconds& avg, const chr::nanoseconds& max, const chr::nanoseconds& min
 		);
@@ -28,34 +29,11 @@ namespace chm {
 		float maxRecall;
 		float minRecall;
 
+		QueryBenchmarkStats() = default;
 		QueryBenchmarkStats(
 			const chr::nanoseconds& avg, const chr::nanoseconds& max, const chr::nanoseconds& min,
 			const float avgRecall, const float maxRecall, const float minRecall
 		);
-	};
-
-	struct MaxQueryElapsedCmp {
-		constexpr bool operator()(const QueryBenchmark& a, const QueryBenchmark& b) {
-			return a.elapsed > b.elapsed;
-		}
-	};
-
-	struct MinQueryElapsedCmp {
-		constexpr bool operator()(const QueryBenchmark& a, const QueryBenchmark& b) {
-			return a.elapsed < b.elapsed;
-		}
-	};
-
-	struct MaxQueryRecallCmp {
-		constexpr bool operator()(const QueryBenchmark& a, const QueryBenchmark& b) {
-			return a.recall > b.recall;
-		}
-	};
-
-	struct MinQueryRecallCmp {
-		constexpr bool operator()(const QueryBenchmark& a, const QueryBenchmark& b) {
-			return a.recall < b.recall;
-		}
 	};
 
 	class Benchmark {
@@ -64,26 +42,23 @@ namespace chm {
 		const DatasetPtr dataset;
 		std::map<uint, std::vector<QueryBenchmark>> efsToBenchmarks;
 		std::string indexStr;
-		const uint k;
 		const uint levelGenSeed;
 		const bool parallel;
 		const size_t runsCount;
 		const size_t workerCount;
 
-		float getRecall(const uint efSearch) const;
-
 	public:
 		Benchmark(
 			const DatasetPtr& dataset, const uint efConstruction,
-			const std::vector<uint>& efSearchValues, const uint k, const uint levelGenSeed,
-			const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount
+			const std::vector<uint>& efSearchValues, const uint levelGenSeed,
+			const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount = 1
 		);
 		BenchmarkStats getBuildStats() const;
 		Benchmark getParallel(const size_t workerCount) const;
 		std::string getString() const;
 		std::map<uint, QueryBenchmarkStats> getQueryStats() const;
 		void print(std::ostream& s) const;
-		Benchmark& run();
+		Benchmark& run(std::ostream& s);
 	};
 
 	template<typename T> long long convert(chr::nanoseconds& t);

@@ -1,5 +1,5 @@
 __pycache__
-/.venv
 /.vscode
-/cmakeBuild
-/src/data
+/src/.venv
+/src/cmakeBuild
+/src/CMakeLists.txt
