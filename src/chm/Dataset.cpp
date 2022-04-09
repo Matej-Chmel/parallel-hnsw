@@ -58,7 +58,8 @@ namespace chm {
 	Dataset::Dataset(
 		const size_t dim, const size_t k, const uint seed, const SpaceKind spaceKind,
 		const SIMDType simdType, const size_t testCount, const size_t trainCount
-	) : dim(dim), k(k), spaceKind(spaceKind), testCount(testCount), trainCount(trainCount) {
+	) : dim(dim), k(k), simdType(simdType), spaceKind(spaceKind), testCount(testCount),
+		trainCount(trainCount) {
 
 		this->generate(this->test, testCount, seed + 1);
 		this->generate(this->train, trainCount, seed);
@@ -75,15 +76,17 @@ namespace chm {
 
 	IndexPtr Dataset::getIndex(
 		const uint efConstruction, const uint mMax, const bool parallel,
-		const uint seed, const SIMDType simdType, const size_t workerCount
+		const uint seed, const size_t workerCount
 	) const {
 		const IndexConfig cfg(efConstruction, mMax, this->trainCount);
 		if(parallel) {
-			auto res = std::make_shared<ParallelIndex>(cfg, this->dim, seed, this->spaceKind, simdType);
+			auto res = std::make_shared<ParallelIndex>(
+				cfg, this->dim, seed, this->spaceKind, this->simdType
+			);
 			res->setWorkersNum(workerCount);
 			return res;
 		}
-		return std::make_shared<SequentialIndex>(cfg, this->dim, seed, this->spaceKind, simdType);
+		return std::make_shared<SequentialIndex>(cfg, this->dim, seed, this->spaceKind, this->simdType);
 	}
 
 	chr::nanoseconds Dataset::getBruteforceElapsed() const {

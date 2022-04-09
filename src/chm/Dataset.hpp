@@ -32,6 +32,7 @@ namespace chm {
 	public:
 		const size_t dim;
 		const size_t k;
+		const SIMDType simdType;
 		const SpaceKind spaceKind;
 		const size_t testCount;
 		const size_t trainCount;
@@ -44,14 +45,14 @@ namespace chm {
 		chr::nanoseconds getBruteforceElapsed() const;
 		IndexPtr getIndex(
 			const uint efConstruction, const uint mMax, const bool parallel,
-			const uint seed, const SIMDType simdType, const size_t workerCount
+			const uint seed, const size_t workerCount
 		) const;
 		float getRecall(const ArrayView<const uint>& foundIDs) const;
 		std::string getString() const;
 		QueryResPtr query(const IndexPtr& index, const uint efSearch) const;
 	};
 
-	using DatasetPtr = std::shared_ptr<Dataset>;
+	using DatasetPtr = std::shared_ptr<const Dataset>;
 
 	class Timer {
 		chr::steady_clock::time_point start;

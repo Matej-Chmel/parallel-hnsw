@@ -67,8 +67,7 @@ namespace chm {
 		const uint k;
 		const uint levelGenSeed;
 		const bool parallel;
-		const SIMDType simdType;
-		const SpaceKind spaceKind;
+		const size_t runsCount;
 		const size_t workerCount;
 
 		float getRecall(const uint efSearch) const;
@@ -77,14 +76,14 @@ namespace chm {
 		Benchmark(
 			const DatasetPtr& dataset, const uint efConstruction,
 			const std::vector<uint>& efSearchValues, const uint k, const uint levelGenSeed,
-			const uint mMax, const bool parallel, const SIMDType simdType, const SpaceKind spaceKind,
-			const size_t workerCount
+			const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount
 		);
 		BenchmarkStats getBuildStats() const;
+		Benchmark getParallel(const size_t workerCount) const;
 		std::string getString() const;
 		std::map<uint, QueryBenchmarkStats> getQueryStats() const;
 		void print(std::ostream& s) const;
-		void run(const size_t runsCount);
+		Benchmark& run();
 	};
 
 	template<typename T> long long convert(chr::nanoseconds& t);

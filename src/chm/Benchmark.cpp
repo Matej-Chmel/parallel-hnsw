@@ -24,11 +24,9 @@ namespace chm {
 	Benchmark::Benchmark(
 		const DatasetPtr& dataset, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint k, const uint levelGenSeed,
-		const uint mMax, const bool parallel, const SIMDType simdType, const SpaceKind spaceKind,
-		const size_t workerCount
+		const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount
 	) : cfg(efConstruction, mMax, dataset->trainCount), dataset(dataset), k(k), indexStr(""),
-		levelGenSeed(levelGenSeed), parallel(parallel), simdType(simdType), spaceKind(spaceKind),
-		workerCount(workerCount) {
+		levelGenSeed(levelGenSeed), parallel(parallel), runsCount(runsCount), workerCount(workerCount) {
 
 		for(const auto& efSearch : efSearchValues)
 			this->efsToBenchmarks[efSearch] = std::vector<QueryBenchmark>();
@@ -44,9 +42,22 @@ namespace chm {
 		);
 	}
 
+	Benchmark Benchmark::getParallel(const size_t workerCount) const {
+		std::vector<uint> efSearchValues;
+
+		for(const auto& p : this->efsToBenchmarks)
+			efSearchValues.emplace_back(p.first);
+
+		return Benchmark(
+			this->dataset, this->cfg.efConstruction, efSearchValues, this->k, this->levelGenSeed,
+			this->cfg.mMax, true, this->runsCount, workerCount
+		);
+	}
+
 	std::string Benchmark::getString() const {
 		std::stringstream s;
-		s << this->dataset->getString() << '\n' << this->indexStr;
+		s << this->dataset->getString() << '\n' << this->indexStr << '\n' <<
+			"Runs: " << this->runsCount;
 		return s.str();
 	}
 
@@ -121,14 +132,14 @@ namespace chm {
 		s.copyfmt(streamState);
 	}
 
-	void Benchmark::run(const size_t runsCount) {
+	Benchmark& Benchmark::run() {
 		Timer timer{};
 
-		for(size_t buildIdx = 0; buildIdx < runsCount; buildIdx++) {
+		for(size_t buildIdx = 0; buildIdx < this->runsCount; buildIdx++) {
 			timer.reset();
 			auto index = this->dataset->getIndex(
 				this->cfg.efConstruction, this->cfg.mMax, this->parallel,
-				this->levelGenSeed, this->simdType, this->workerCount
+				this->levelGenSeed, this->workerCount
 			);
 			this->dataset->build(index);
 			this->buildElapsed.push_back(timer.getElapsed());
@@ -142,7 +153,7 @@ namespace chm {
 					throw std::runtime_error("Index string changed between runs.");
 			}
 
-			for(size_t queryIdx = 0; queryIdx < runsCount; queryIdx++)
+			for(size_t queryIdx = 0; queryIdx < this->runsCount; queryIdx++)
 				for(auto& p : this->efsToBenchmarks) {
 					timer.reset();
 					auto queryRes = this->dataset->query(index, p.first);
@@ -150,6 +161,8 @@ namespace chm {
 					p.second.emplace_back(elapsed, this->dataset->getRecall(queryRes->getIDs()));
 				}
 		}
+
+		return *this;
 	}
 
 	void prettyPrint(const chr::nanoseconds& elapsed, std::ostream& s) {
