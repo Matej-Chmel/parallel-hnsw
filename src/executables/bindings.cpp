@@ -62,5 +62,7 @@ namespace chm {
 			.def("run", [](Benchmark& b) {
 				(void)b.run(std::cout);
 			});
+
+		py::add_ostream_redirect(m, "ostream");
 	}
 }
