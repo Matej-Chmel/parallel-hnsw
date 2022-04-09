@@ -1,0 +1,2 @@
+include chm/*.hpp
+include scripts/SIMDCapability.py

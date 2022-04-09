@@ -3,3 +3,6 @@ __pycache__
 /.vscode
 /cmakeBuild
 /CMakeLists.txt
+/src/build
+/src/dist
+/src/parallel_hnsw.egg-info
