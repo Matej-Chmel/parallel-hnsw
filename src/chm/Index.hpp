@@ -7,7 +7,8 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-#include "distances.hpp"
+#include "euclideanDistance.hpp"
+#include "innerProduct.hpp"
 
 namespace chm {
 	using uint = unsigned int;
@@ -121,6 +122,7 @@ namespace chm {
 	public:
 		ArrayView(T* data, const size_t dim, const size_t elemCount);
 		ArrayView<const T> asConst() const;
+		void copyTo(std::vector<T>& v) const;
 		void fillSet(std::unordered_set<uint>& set, const size_t elemIdx) const;
 		T* getData(const size_t elemIdx);
 		const T* const getData(const size_t elemIdx) const;
@@ -146,8 +148,12 @@ namespace chm {
 		INNER_PRODUCT
 	};
 
+	std::string spaceKindToStr(const SpaceKind kind);
+
 	class Space {
-		DistFunc distFunc;
+		const size_t dim16;
+		const size_t dim4;
+		const DistanceInfo distInfo;
 		std::vector<float> elemData;
 		ArrayView<float> view;
 
@@ -163,9 +169,10 @@ namespace chm {
 		float getDistance(const float* const aData, const uint bID) const;
 		float getDistance(const uint aID, const float* const bData) const;
 		float getDistance(const uint aID, const uint bID) const;
+		std::string getDistanceName() const;
 		void normalizeData(const float* const data, float* const res) const;
 		void push(const Element& e);
-		Space(const size_t dim, const SpaceKind kind, const uint maxElemCount);
+		Space(const size_t dim, const SpaceKind kind, const uint maxElemCount, const SIMDType simdType);
 	};
 
 	class VisitedSet {
@@ -194,10 +201,9 @@ namespace chm {
 		ArrayView<uint> ids;
 		bool owningData;
 
-		void set(const size_t queryIdx, const size_t neighborIdx, const float dist, const uint id);
-
 	public:
 		~QueryResults();
+		void copyIDsTo(std::vector<uint>& v) const;
 		float getDistance(const size_t queryIdx, const size_t neighborIdx);
 		uint getID(const size_t queryIdx, const size_t neighborIdx);
 		const ArrayView<const uint> getIDs() const;
@@ -205,6 +211,7 @@ namespace chm {
 		size_t getQueryCount() const;
 		void push(FarHeap& h, const size_t queryIdx);
 		QueryResults(const size_t k, const size_t queryCount);
+		void set(const size_t queryIdx, const size_t neighborIdx, const float dist, const uint id);
 	};
 
 	using QueryResPtr = std::shared_ptr<QueryResults>;
@@ -246,7 +253,9 @@ namespace chm {
 		IndexConfig cfg;
 		Space space;
 
-		AbstractIndex(IndexConfig cfg, const size_t dim, const SpaceKind spaceKind);
+		AbstractIndex(
+			IndexConfig cfg, const size_t dim, const SpaceKind spaceKind, const SIMDType simdType
+		);
 		uint getEntryLevel() const;
 		virtual std::string getString() const;
 		void insertWithLevel(const Element& q, const uint l);
@@ -290,7 +299,7 @@ namespace chm {
 		std::string getString() const override;
 		ParallelIndex(
 			const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
-			const SpaceKind spaceKind
+			const SpaceKind spaceKind, const SIMDType simdType
 		);
 		void push(const ArrayView<const float>& v) override;
 		QueryResPtr queryBatch(const ArrayView<const float>& v, const uint efSearch, const uint k) override;
@@ -357,7 +366,7 @@ namespace chm {
 		QueryResPtr queryBatch(const ArrayView<const float>& v, const uint efSearch, const uint k) override;
 		SequentialIndex(
 			const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
-			const SpaceKind spaceKind
+			const SpaceKind spaceKind, const SIMDType simdType
 		);
 	};
 
@@ -418,6 +427,13 @@ namespace chm {
 	template<typename T>
 	inline ArrayView<const T> ArrayView<T>::asConst() const {
 		return ArrayView<const T>(this->data, this->dim, this->elemCount);
+	}
+
+	template<typename T>
+	inline void ArrayView<T>::copyTo(std::vector<T>& v) const {
+		const auto compCount = this->getComponentCount();
+		v.reserve(compCount);
+		std::copy(this->data, this->data + compCount, std::back_inserter(v));
 	}
 
 	template<typename T>

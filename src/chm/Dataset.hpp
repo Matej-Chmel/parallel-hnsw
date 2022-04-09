@@ -1,75 +1,64 @@
 #pragma once
-#include <filesystem>
-#include <iomanip>
-#include <ios>
-#include <ostream>
+#include <chrono>
 #include "Index.hpp"
 
 namespace chm {
-	namespace fs = std::filesystem;
+	namespace chr = std::chrono;
 
-	class Dataset {
-		size_t dim;
-		uint k;
-		std::string name;
-		SpaceKind space;
-		uint testCount;
-		uint trainCount;
-		std::vector<uint> neighbors;
-		std::vector<float> test, train;
+	class BruteforceIndex {
+		uint elemCount;
+		std::vector<Node> nodes;
+		Space space;
+
+		void queryOne(const Element& e, const size_t k, const QueryResPtr& res);
 
 	public:
-		void build(const IndexPtr& index) const;
-		Dataset(const fs::path& p);
-		IndexPtr getIndex(
-			const uint efConstruction, const uint mMax, const bool parallel,
-			const uint seed, const size_t workersNum
-		) const;
-		float getRecall(const QueryResPtr& results) const;
-		bool isAngular() const;
-		QueryResPtr query(const IndexPtr& index, const uint efSearch) const;
-		void writeLongDescription(const fs::path& p) const;
-		void writeLongDescription(std::ostream& s) const;
-		void writeShortDescription(std::ostream& s) const;
+		BruteforceIndex(
+			const size_t dim, const size_t maxElemCount,
+			const SIMDType simdType, const SpaceKind spaceKind
+		);
+		void push(const ArrayView<const float>& v);
+		QueryResPtr queryBatch(const ArrayView<const float>& v, const size_t k);
 	};
 
-	using DatasetPtr = std::shared_ptr<const Dataset>;
+	class Dataset {
+		chr::nanoseconds bruteforceElapsed;
+		std::vector<uint> neighbors;
+		std::vector<float> test;
+		std::vector<float> train;
 
-	void throwCouldNotOpen(const fs::path& p);
+		void generate(std::vector<float>& v, const size_t count, const uint seed);
 
-	template<typename T>
-	void readBinary(std::ifstream& s, T& value) {
-		s.read(reinterpret_cast<std::ifstream::char_type*>(&value), sizeof(T));
-	}
+	public:
+		const size_t dim;
+		const size_t k;
+		const SpaceKind spaceKind;
+		const size_t testCount;
+		const size_t trainCount;
 
-	template<typename T>
-	void readBinary(std::ifstream& s, std::vector<T>& v, const size_t len) {
-		v.resize(len);
-		s.read(reinterpret_cast<std::ifstream::char_type*>(v.data()), len * sizeof(T));
-	}
+		void build(const IndexPtr& index) const;
+		Dataset(
+			const size_t dim, const size_t k, const uint seed, const SpaceKind spaceKind,
+			const SIMDType simdType, const size_t testCount, const size_t trainCount
+		);
+		chr::nanoseconds getBruteforceElapsed() const;
+		IndexPtr getIndex(
+			const uint efConstruction, const uint mMax, const bool parallel,
+			const uint seed, const SIMDType simdType, const size_t workerCount
+		) const;
+		float getRecall(const ArrayView<const uint>& foundIDs) const;
+		std::string getString() const;
+		QueryResPtr query(const IndexPtr& index, const uint efSearch) const;
+	};
 
-	template<typename T>
-	void writeDescription(std::ostream& s, const std::vector<T>& v, const std::string& name) {
-		s << name << "[length " << v.size() << "]\n";
+	using DatasetPtr = std::shared_ptr<Dataset>;
 
-		for(const auto& item : v)
-			s << item << '\n';
-	}
+	class Timer {
+		chr::steady_clock::time_point start;
 
-	template<typename T>
-	void writeDescription(
-		std::ostream& s, const std::vector<T>& v, const std::string& name,
-		const std::streamsize decimalPlaces
-	) {
-		std::ios streamState(nullptr);
-		streamState.copyfmt(s);
-
-		s << name << "[length " << v.size() << "]\n"
-			<< std::fixed << std::setprecision(decimalPlaces) << std::showpoint;
-
-		for(const auto& item : v)
-			s << item << '\n';
-
-		s.copyfmt(streamState);
-	}
+	public:
+		chr::nanoseconds getElapsed() const;
+		void reset();
+		Timer();
+	};
 }

@@ -105,6 +105,20 @@ namespace chm {
 
 	Element::Element(const float* const data, const uint id) : data(data), id(id) {}
 
+	std::string spaceKindToStr(const SpaceKind kind) {
+		switch(kind) {
+			case SpaceKind::ANGULAR:
+				return "angular";
+			case SpaceKind::EUCLIDEAN:
+				return "euclidean";
+			case SpaceKind::INNER_PRODUCT:
+				return "inner product";
+			default:
+				throw std::runtime_error("Invalid space kind.");
+		}
+		return "";
+	}
+
 	float Space::getNorm(const float* const data) const {
 		float norm = 0.f;
 
@@ -123,7 +137,9 @@ namespace chm {
 	}
 
 	float Space::getDistance(const float* const aData, const float* const bData) const {
-		return this->distFunc(aData, bData, this->dim);
+		return this->distInfo.funcInfo.f(
+			aData, bData, this->dim, this->dim4, this->dim16, this->distInfo.dimLeft
+		);
 	}
 
 	float Space::getDistance(const float* const aData, const uint bID) const {
@@ -136,6 +152,10 @@ namespace chm {
 
 	float Space::getDistance(const uint aID, const uint bID) const {
 		return this->getDistance(this->getData(aID), this->getData(bID));
+	}
+
+	std::string Space::getDistanceName() const {
+		return this->distInfo.funcInfo.name;
 	}
 
 	void Space::normalizeData(const float* const data, float* const res) const {
@@ -152,9 +172,13 @@ namespace chm {
 			std::copy(q.data, q.data + this->dim, this->getData(q.id));
 	}
 
-	Space::Space(const size_t dim, const SpaceKind kind, const uint maxElemCount)
-		: distFunc(kind == SpaceKind::EUCLIDEAN ? euclid : innerProd), dim(dim),
-		elemData(maxElemCount * dim, 0.f), view(this->elemData.data(), dim, maxElemCount),
+	Space::Space(
+		const size_t dim, const SpaceKind kind, const uint maxElemCount, const SIMDType simdType
+	) : dim16(dim >> 4 << 4), dim4(dim >> 2 << 2), distInfo(
+			kind == SpaceKind::EUCLIDEAN
+			? getEuclideanInfo(dim, this->dim4, this->dim16, simdType)
+			: getInnerProductInfo(dim, this->dim4, this->dim16, simdType)
+		), dim(dim), elemData(maxElemCount * dim, 0.f), view(this->elemData.data(), dim, maxElemCount),
 		normalize(kind == SpaceKind::ANGULAR) {}
 
 	bool VisitedSet::isMarked(const uint id) const {
@@ -188,6 +212,10 @@ namespace chm {
 	) {
 		this->distances.setVal(queryIdx, neighborIdx, dist);
 		this->ids.setVal(queryIdx, neighborIdx, id);
+	}
+
+	void QueryResults::copyIDsTo(std::vector<uint>& v) const {
+		this->ids.copyTo(v);
 	}
 
 	float QueryResults::getDistance(const size_t queryIdx, const size_t neighborIdx) {
@@ -363,9 +391,10 @@ namespace chm {
 		return 0;
 	}
 
-	AbstractIndex::AbstractIndex(IndexConfig cfg, const size_t dim, const SpaceKind spaceKind)
-		: elemCount(0), entryID(0), entryLevel(0), cfg(cfg),
-		space(dim, spaceKind, this->cfg.maxElemCount) {}
+	AbstractIndex::AbstractIndex(
+		IndexConfig cfg, const size_t dim, const SpaceKind spaceKind, const SIMDType simdType
+	) : elemCount(0), entryID(0), entryLevel(0), cfg(cfg),
+		space(dim, spaceKind, this->cfg.maxElemCount, simdType) {}
 
 	uint AbstractIndex::getEntryLevel() const {
 		return this->entryLevel;
@@ -373,7 +402,8 @@ namespace chm {
 
 	std::string AbstractIndex::getString() const {
 		std::stringstream s;
-		s << "(efConstruction = " << this->cfg.efConstruction << ", mMax = " << this->cfg.mMax << ')';
+		s << "(efConstruction = " << this->cfg.efConstruction << ", mMax = " << this->cfg.mMax <<
+			", distance = " << this->space.getDistanceName() << ')';
 		return s.str();
 	}
 
@@ -480,8 +510,8 @@ namespace chm {
 
 	ParallelIndex::ParallelIndex(
 		const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
-		const SpaceKind spaceKind
-	) : AbstractIndex(cfg, dim, spaceKind),
+		const SpaceKind spaceKind, const SIMDType simdType
+	) : AbstractIndex(cfg, dim, spaceKind, simdType),
 		conn(this->cfg.maxElemCount, this->cfg.mMax, this->cfg.mMax0), levelGenSeed(levelGenSeed),
 		workersNum(1) {}
 
@@ -669,8 +699,8 @@ namespace chm {
 
 	SequentialIndex::SequentialIndex(
 		const IndexConfig& cfg, const size_t dim, const uint levelGenSeed,
-		const SpaceKind spaceKind
-	) : AbstractIndex(cfg, dim, spaceKind),
+		const SpaceKind spaceKind, const SIMDType simdType
+	) : AbstractIndex(cfg, dim, spaceKind, simdType),
 		conn(this->cfg.maxElemCount, this->cfg.mMax, this->cfg.mMax0),
 		gen(this->cfg.getML(), levelGenSeed) {}
 

@@ -1,63 +1,110 @@
-#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include "Dataset.hpp"
 
 namespace chm {
-	void Dataset::build(const IndexPtr& index) const {
-		index->push(ArrayView(this->train.data(), this->dim, this->trainCount));
+	void BruteforceIndex::queryOne(const Element& e, const size_t k, const QueryResPtr& res) {
+		for(auto& n : this->nodes)
+			n.dist = space.getDistance(e.data, n.id);
+
+		std::sort(this->nodes.begin(), this->nodes.end(), FarHeapCmp());
+
+		for(size_t i = 0; i < k; i++)
+			res->set(e.id, i, this->nodes[i].id, this->nodes[i].dist);
 	}
 
-	Dataset::Dataset(const fs::path& p) : name(p.stem().string()) {
-		std::ifstream file(p, std::ios::binary);
+	BruteforceIndex::BruteforceIndex(
+		const size_t dim, const size_t maxElemCount, const SIMDType simdType, const SpaceKind spaceKind
+	) : space(dim, spaceKind, maxElemCount, simdType) {
 
-		if (!file.is_open())
-			throwCouldNotOpen(p);
+		this->nodes.reserve(maxElemCount);
+	}
 
-		bool angular;
-		uint dim;
-		readBinary(file, angular);
-		this->space = angular ? SpaceKind::ANGULAR : SpaceKind::EUCLIDEAN;
-		readBinary(file, dim);
-		this->dim = size_t(dim);
-		readBinary(file, this->k);
-		readBinary(file, this->testCount);
-		readBinary(file, this->trainCount);
-		readBinary(file, this->neighbors, size_t(this->k * this->testCount));
-		readBinary(file, this->test, size_t(this->dim * this->testCount));
-		readBinary(file, this->train, size_t(this->dim * this->trainCount));
+	QueryResPtr BruteforceIndex::queryBatch(const ArrayView<const float>& v, const size_t k) {
+		const auto queryCount = v.getElemCount();
+		auto res = std::make_shared<QueryResults>(k, queryCount);
+
+		for(size_t i = 0; i < queryCount; i++)
+			this->queryOne(Element(v.getData(i), i), k, res);
+
+		return res;
+	}
+
+	void BruteforceIndex::push(const ArrayView<const float>& v) {
+		const auto elemCount = v.getElemCount();
+
+		for(size_t i = 0; i < elemCount; i++) {
+			const auto id = this->elemCount + uint(i);
+			this->space.push(Element(v.getData(i), id));
+			this->nodes.emplace_back(0.f, id);
+		}
+	}
+
+	void Dataset::generate(std::vector<float>& v, const size_t count, const uint seed) {
+		const auto componentCount = this->dim * count;
+		std::uniform_real_distribution<float> dist{};
+		std::default_random_engine gen(seed);
+
+		v.reserve(componentCount);
+
+		for(uint i = 0; i < componentCount; i++)
+			v.emplace_back(dist(gen));
+	}
+
+	void Dataset::build(const IndexPtr& index) const {
+		index->push(ArrayView<const float>(this->train.data(), this->dim, this->trainCount));
+	}
+
+	Dataset::Dataset(
+		const size_t dim, const size_t k, const uint seed, const SpaceKind spaceKind,
+		const SIMDType simdType, const size_t testCount, const size_t trainCount
+	) : dim(dim), k(k), spaceKind(spaceKind), testCount(testCount), trainCount(trainCount) {
+
+		this->generate(this->test, testCount, seed + 1);
+		this->generate(this->train, trainCount, seed);
+
+		Timer timer{};
+		BruteforceIndex bf(this->dim, this->trainCount, simdType, this->spaceKind);
+		bf.push(ArrayView<const float>(this->train.data(), this->dim, this->trainCount));
+		const auto res = bf.queryBatch(
+			ArrayView<const float>(this->test.data(), this->dim, this->testCount), this->k
+		);
+		this->bruteforceElapsed = timer.getElapsed();
+		res->copyIDsTo(this->neighbors);
 	}
 
 	IndexPtr Dataset::getIndex(
 		const uint efConstruction, const uint mMax, const bool parallel,
-		const uint seed, const size_t workersNum
+		const uint seed, const SIMDType simdType, const size_t workerCount
 	) const {
 		const IndexConfig cfg(efConstruction, mMax, this->trainCount);
-
 		if(parallel) {
-			auto index = std::make_shared<ParallelIndex>(cfg, this->dim, seed, this->space);
-			index->setWorkersNum(workersNum);
-			return index;
+			auto res = std::make_shared<ParallelIndex>(cfg, this->dim, seed, this->spaceKind, simdType);
+			res->setWorkersNum(workerCount);
+			return res;
 		}
-		return std::make_shared<SequentialIndex>(cfg, this->dim, seed, this->space);
+		return std::make_shared<SequentialIndex>(cfg, this->dim, seed, this->spaceKind, simdType);
 	}
 
-	float Dataset::getRecall(const QueryResPtr& results) const {
+	chr::nanoseconds Dataset::getBruteforceElapsed() const {
+		return this->bruteforceElapsed;
+	}
+
+	float Dataset::getRecall(const ArrayView<const uint>& foundIDs) const {
+		if(!this->k)
+			throw std::runtime_error("Bruteforce wasn't computed.");
+
 		return chm::getRecall(
-			ArrayView<const uint>(this->neighbors.data(), this->k, this->testCount),
-			results->getIDs()
+			ArrayView<const uint>(this->neighbors.data(), 1, this->neighbors.size()), foundIDs
 		);
 	}
 
-	bool Dataset::isAngular() const {
-		switch(this->space) {
-			case SpaceKind::ANGULAR:
-				return true;
-			case SpaceKind::EUCLIDEAN:
-				return false;
-			default:
-				throw std::runtime_error("Invalid space.");
-		}
+	std::string Dataset::getString() const {
+		std::stringstream s;
+		s << "Dataset: " << spaceKindToStr(this->spaceKind)
+			<< " space, dimension = " << this->dim << ", trainCount = " << this->trainCount
+			<< ", testCount = " << this->testCount << ", k = " << this->k;
+		return s.str();
 	}
 
 	QueryResPtr Dataset::query(const IndexPtr& index, const uint efSearch) const {
@@ -66,31 +113,15 @@ namespace chm {
 		);
 	}
 
-	void Dataset::writeLongDescription(const fs::path& p) const {
-		std::ofstream s(p);
-		this->writeLongDescription(s);
+	chr::nanoseconds Timer::getElapsed() const {
+		return chr::duration_cast<chr::nanoseconds>(chr::steady_clock::now() - this->start);
 	}
 
-	void Dataset::writeLongDescription(std::ostream& s) const {
-		s << "angular: " << (this->isAngular() ? "True" : "False") << '\n'
-			<< "dim: " << dim << '\n'
-			<< "k: " << k << '\n'
-			<< "testCount: " << testCount << '\n'
-			<< "trainCount: " << trainCount << '\n';
-		chm::writeDescription(s, this->neighbors, "neighbors");
-		chm::writeDescription(s, this->test, "test", 6);
-		chm::writeDescription(s, this->train, "train", 6);
+	void Timer::reset() {
+		this->start = chr::steady_clock::now();
 	}
 
-	void Dataset::writeShortDescription(std::ostream& s) const {
-		s << "Dataset " << this->name << ": " << (this->isAngular() ? "angular" : "euclidean")
-			<< " space, dimension = " << this->dim << ", trainCount = " << this->trainCount
-			<< ", testCount = " << this->testCount << ", k = " << this->k << '\n';
-	}
-
-	void throwCouldNotOpen(const fs::path& p) {
-		std::stringstream s;
-		s << "Could not open file " << p << '.';
-		throw std::runtime_error(s.str());
+	Timer::Timer() {
+		this->reset();
 	}
 }
