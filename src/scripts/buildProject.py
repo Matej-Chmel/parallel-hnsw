@@ -14,6 +14,15 @@ class Args:
 	clean: bool
 	ignorePythonVersion: bool
 
+def buildBindings(executable: Path, repoDir: Path):
+	print("Building bindings.")
+	subprocess.call([executable, "-m", "pip", "install", "."], cwd=repoDir / "src")
+	output = subprocess.check_output(
+		[executable, "-c", "import parallel_hnsw as h; print(h.__doc__)"]
+	).decode("utf-8")
+	print(f"Module docstring: {output}")
+	print("Bindings built.")
+
 def buildNativeLib(executable: Path, repoDir: Path):
 	print("Building build system for native library.")
 	subprocess.call([executable, Path("src", "scripts", "formatCMakeTemplates.py")], cwd=repoDir)
@@ -80,7 +89,14 @@ def run():
 	repoDir = Path(__file__).parents[2]
 	executable = buildVirtualEnv(repoDir)
 	buildNativeLib(executable, repoDir)
+	buildBindings(executable, repoDir)
+	runBindingsTest(executable, repoDir)
 	print("Completed.")
+
+def runBindingsTest(executable: Path, repoDir: Path):
+	print("Running test of bindings.")
+	subprocess.call([executable, "bindingsTest.py"], cwd=repoDir / "src" / "scripts")
+	print("Bindings tested.")
 
 def main():
 	try:

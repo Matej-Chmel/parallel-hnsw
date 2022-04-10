@@ -74,7 +74,7 @@ namespace chm {
 		minRecall(minRecall) {}
 
 	Benchmark::Benchmark(
-		const DatasetPtr& dataset, const uint efConstruction,
+		DatasetPtr dataset, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint levelGenSeed,
 		const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount
 	) : cfg(efConstruction, mMax, uint(dataset->trainCount)), dataset(dataset), indexStr(""),
@@ -92,6 +92,10 @@ namespace chm {
 			*std::max_element(this->buildElapsed.begin(), this->buildElapsed.end()),
 			*std::min_element(this->buildElapsed.begin(), this->buildElapsed.end())
 		);
+	}
+
+	DatasetPtr Benchmark::getDataset() const {
+		return this->dataset;
 	}
 
 	Benchmark Benchmark::getParallel(const size_t workerCount) const {

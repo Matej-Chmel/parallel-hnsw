@@ -1,12 +1,14 @@
 #include <iostream>
 #include <pybind11/iostream.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include "chm/Benchmark.hpp"
 
 namespace chm {
 	namespace py = pybind11;
 
 	PYBIND11_MODULE(parallel_hnsw, m) {
+		m.def("getBestSIMDType", getBestSIMDType);
 		m.doc() = "Python bindings for parallel-hnsw.";
 
 		py::class_<BenchmarkStats>(m, "BenchmarkStats")
@@ -40,28 +42,38 @@ namespace chm {
 				const SIMDType, const size_t, const size_t>(),
 				py::arg("dim"), py::arg("k"), py::arg("seed"), py::arg("spaceKind"),
 				py::arg("simdType"), py::arg("testCount"), py::arg("trainCount")
-			);
+			)
+			.def("__str__", &Dataset::getString)
+			.def_readonly("dim", &Dataset::dim)
+			.def_readonly("k", &Dataset::k)
+			.def_readonly("space", &Dataset::spaceKind)
+			.def_readonly("SIMD", &Dataset::simdType)
+			.def_readonly("testCount", &Dataset::testCount)
+			.def_readonly("trainCount", &Dataset::trainCount);
 
 		py::class_<Benchmark>(m, "Benchmark")
 			.def(py::init<
-				const DatasetPtr&, const uint, const std::vector<uint>&, const uint,
+				DatasetPtr, const uint, const std::vector<uint>&, const uint,
 				const uint, const bool, const size_t, const size_t>(),
 				py::arg("dataset"), py::arg("efConstruction"), py::arg("efSearchValues"),
 				py::arg("levelGenSeed"), py::arg("mMax"), py::arg("parallel"),
 				py::arg("runsCount"), py::arg("workerCount") = 1
 			)
-			.def("__str__", [](const Benchmark& b) {
-				return b.getString();
-			})
+			.def("__str__", &Benchmark::getString)
 			.def("getBuildStats", &Benchmark::getBuildStats)
 			.def("getParallel", &Benchmark::getParallel, py::arg("workerCount"))
 			.def("getQueryStats", &Benchmark::getQueryStats)
 			.def("print", [](const Benchmark& b) {
 				b.print(std::cout);
 			})
-			.def("run", [](Benchmark& b) {
+			.def("run", [](Benchmark& b) -> Benchmark& {
 				(void)b.run(std::cout);
-			});
+				return b;
+			})
+			.def_property_readonly("dataset", &Benchmark::getDataset)
+			.def_readonly("parallel", &Benchmark::parallel)
+			.def_readonly("runsCount", &Benchmark::runsCount)
+			.def_readonly("workerCount", &Benchmark::workerCount);
 
 		py::add_ostream_redirect(m, "ostream");
 	}

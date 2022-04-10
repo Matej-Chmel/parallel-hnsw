@@ -39,21 +39,23 @@ namespace chm {
 	class Benchmark {
 		std::vector<chr::nanoseconds> buildElapsed;
 		const IndexConfig cfg;
-		const DatasetPtr dataset;
+		DatasetPtr dataset;
 		std::map<uint, std::vector<QueryBenchmark>> efsToBenchmarks;
 		std::string indexStr;
 		const uint levelGenSeed;
+
+	public:
 		const bool parallel;
 		const size_t runsCount;
 		const size_t workerCount;
 
-	public:
 		Benchmark(
-			const DatasetPtr& dataset, const uint efConstruction,
+			DatasetPtr dataset, const uint efConstruction,
 			const std::vector<uint>& efSearchValues, const uint levelGenSeed,
 			const uint mMax, const bool parallel, const size_t runsCount, const size_t workerCount = 1
 		);
 		BenchmarkStats getBuildStats() const;
+		DatasetPtr getDataset() const;
 		Benchmark getParallel(const size_t workerCount) const;
 		std::string getString() const;
 		std::map<uint, QueryBenchmarkStats> getQueryStats() const;

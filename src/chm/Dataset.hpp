@@ -21,7 +21,7 @@ namespace chm {
 		QueryResPtr queryBatch(const ArrayView<const float>& v, const size_t k);
 	};
 
-	class Dataset {
+	class Dataset : public std::enable_shared_from_this<Dataset> {
 		chr::nanoseconds bruteforceElapsed;
 		std::vector<uint> neighbors;
 		std::vector<float> test;
@@ -52,7 +52,7 @@ namespace chm {
 		QueryResPtr query(const IndexPtr& index, const uint efSearch) const;
 	};
 
-	using DatasetPtr = std::shared_ptr<const Dataset>;
+	using DatasetPtr = std::shared_ptr<Dataset>;
 
 	class Timer {
 		chr::steady_clock::time_point start;
