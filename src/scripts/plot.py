@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 import parallel_hnsw as h
+from pathlib import Path
 from matplotlib import pyplot as plt
 
 class AppError(Exception):
@@ -79,34 +80,47 @@ def getBuildLine(statsList: list[Stats]):
 		raise AppError("Name mismatch.")
 	return Line(statsList[0].name, sorted([s.getBuildPoint() for s in statsList], key=lambda p: p.x))
 
-def getMetric(space: h.Space):
+def getCzechMetric(space: h.Space):
 	if space == h.Space.EUCLIDEAN:
 		return "eukleidovská vzdálenost"
 	return "kosinusová podobnost"
 
-def plotBuild(dim: int, metric: str, *statsCol: list[Stats]):
+def getEnglishMetric(space: h.Space):
+	if space == h.Space.EUCLIDEAN:
+		return "euclidean"
+	return "angular"
+
+def plot(
+	lines: list[Line], dim: int, metric: str, xLabel: str, yLabel: str,
+	plotsDir: Path, name: str, trainCount: int = None
+):
 	fig, _ = plt.subplots(figsize=(12, 7))
 
-	for s in statsCol:
-		getBuildLine(s).plot()
+	for l in lines:
+		l.plot()
 
 	plt.legend()
-	plt.title(f"Dimenze: {dim}, metrika: {metric}")
-	plt.xlabel("Počet prvků při stavbě")
-	plt.ylabel("Čas stavby (s)")
+	plt.title(
+		f"Dimenze: {dim}, metrika: {metric}{f', počet prvků: {trainCount}' if trainCount else ''}"
+	)
+	plt.xlabel(xLabel)
+	plt.ylabel(yLabel)
+	fig.savefig(plotsDir / f"{name}.svg")
 	plt.show()
 
-def plotRecall(dim: int, metric: str, trainCount: int, *stats: Stats):
-	fig, _ = plt.subplots(figsize=(12, 7))
+def plotBuild(dim: int, metric: str, plotsDir: Path, name: str, *statsCol: list[Stats]):
+	plot(
+		[getBuildLine(s) for s in statsCol], dim=dim, metric=metric,
+		xLabel="Počet prvků při stavbě", yLabel="Čas stavby (s)",
+		plotsDir=plotsDir, name=name
+	)
 
-	for s in stats:
-		s.getRecallLine().plot()
-
-	plt.legend()
-	plt.title(f"Dimenze: {dim}, metrika: {metric}, počet prvků: {trainCount}")
-	plt.xlabel("Přesnost")
-	plt.ylabel("Počet dotazů za sekundu (1/s)")
-	plt.show()
+def plotRecall(dim: int, metric: str, trainCount: int, plotsDir: Path, name: str, *stats: Stats):
+	plot(
+		[s.getRecallLine() for s in stats], dim=dim, metric=metric,
+		xLabel="Přesnost", yLabel="Počet dotazů za sekundu (1/s)",
+		plotsDir=plotsDir, name=name, trainCount=trainCount
+	)
 
 @dataclass
 class BenchmarkList:
@@ -135,13 +149,16 @@ class BenchmarkList:
 	def getSeqStats(self, trainCount: int = None):
 		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
 
-	def plotBuild(self):
-		plotBuild(self.dim, getMetric(self.space), self.getSeqStats(), *self.getParStats())
+	def plotBuild(self, plotsDir: Path, name: str):
+		plotBuild(
+			self.dim, getCzechMetric(self.space), plotsDir, name,
+			self.getSeqStats(), *self.getParStats(),
+		)
 
-	def plotRecall(self, trainCount: int):
+	def plotRecall(self, trainCount: int, plotsDir: Path, name: str):
 		plotRecall(
-			self.dim, getMetric(self.space), trainCount, self.seqStats[trainCount],
-			*[self.parStats[w][trainCount] for w in self.workerCounts]
+			self.dim, getCzechMetric(self.space), trainCount, plotsDir, name,
+			self.seqStats[trainCount], *[self.parStats[w][trainCount] for w in self.workerCounts]
 		)
 
 	def run(self):
@@ -171,13 +188,18 @@ def getBenchmarkList(cfg: Config, simdType: h.SIMDType, space: h.Space):
 	return res
 
 def run(cfg: Config):
-	runForSpace(cfg, h.Space.EUCLIDEAN)
-	runForSpace(cfg, h.Space.ANGULAR)
+	plotsDir = Path(__file__).parents[1] / "plots"
+	plotsDir.mkdir(exist_ok=True)
+	runForSpace(cfg, h.Space.EUCLIDEAN, plotsDir)
+	runForSpace(cfg, h.Space.ANGULAR, plotsDir)
 
-def runForSpace(cfg: Config, space: h.Space):
+def runForSpace(cfg: Config, space: h.Space, plotsDir: Path):
 	noSIMDBenchmarks = getBenchmarkList(cfg, h.SIMDType.NONE, space)
-	noSIMDBenchmarks.plotBuild()
-	noSIMDBenchmarks.plotRecall(cfg.maxTrainCount)
+	noSIMDBenchmarks.plotBuild(plotsDir, f"no_simd_build_{getEnglishMetric(space)}")
+	noSIMDBenchmarks.plotRecall(
+		cfg.maxTrainCount, plotsDir,
+		f"no_simd_recall_{getEnglishMetric(space)}"
+	)
 
 	availableSIMD = getAvailableSIMD()
 
@@ -188,27 +210,30 @@ def runForSpace(cfg: Config, space: h.Space):
 	bestSIMDBenchmarks = SIMDBenchmarks[h.getBestSIMDType()]
 
 	plotBuild(
-		cfg.dim, getMetric(space),
+		cfg.dim, getCzechMetric(space), plotsDir, f"simd_sequential_build_{getEnglishMetric(space)}",
 		noSIMDBenchmarks.getSeqStats(),
 		*[b.getSeqStats() for b in SIMDBenchmarks.values()]
 	)
 	plotRecall(
-		cfg.dim, getMetric(space), cfg.maxTrainCount,
+		cfg.dim, getCzechMetric(space), cfg.maxTrainCount, plotsDir,
+		f"simd_sequential_recall_{getEnglishMetric(space)}",
 		noSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
 		*[b.getSeqStats(cfg.maxTrainCount) for b in SIMDBenchmarks.values()]
 	)
 	plotBuild(
-		cfg.dim, getMetric(space),
+		cfg.dim, getCzechMetric(space), plotsDir,
+		f"bestSIMD_sequential_vs_noSIMD_parallel_build_{getEnglishMetric(space)}",
 		bestSIMDBenchmarks.getSeqStats(),
 		*noSIMDBenchmarks.getParStats()
 	)
 	plotRecall(
-		cfg.dim, getMetric(space), cfg.maxTrainCount,
+		cfg.dim, getCzechMetric(space), cfg.maxTrainCount, plotsDir,
+		f"bestSIMD_sequential_vs_noSIMD_parallel_recall_{getEnglishMetric(space)}",
 		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
 		*noSIMDBenchmarks.getParStats(cfg.maxTrainCount)
 	)
-	bestSIMDBenchmarks.plotBuild()
-	bestSIMDBenchmarks.plotRecall(cfg.maxTrainCount)
+	bestSIMDBenchmarks.plotBuild(plotsDir, f"best_simd_build_{getEnglishMetric(space)}")
+	bestSIMDBenchmarks.plotRecall(cfg.maxTrainCount, plotsDir, f"best_simd_recall_{getEnglishMetric(space)}")
 
 def main():
 	run(Config(

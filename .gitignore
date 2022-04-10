@@ -6,3 +6,4 @@ __pycache__
 /src/build
 /src/dist
 /src/parallel_hnsw.egg-info
+/src/plots
