@@ -30,6 +30,10 @@ class Stats:
 		self.build: h.BenchmarkStats = b.getBuildStats()
 		self.name = f"paralelní-{b.workers}" if b.parallel else "sekvenční"
 		self.query: dict[int, h.QueryBenchmarkStats] = b.getQueryStats()
+
+		if b.dataset.SIMD != h.SIMDType.NONE:
+			self.name += f"-{h.SIMDTypeToStr(b.dataset.SIMD)}"
+
 		self.testCount = b.dataset.testCount
 		self.trainCount = b.dataset.trainCount
 
@@ -66,12 +70,12 @@ class BenchmarkList:
 	efConstruction: int
 	efSearchValues: list[int]
 	mMax: int
-	simdType: h.Space
+	simdType: h.SIMDType
 	space: h.Space
 	trainCounts: list[int]
 	workerCounts: list[int]
 	k: int = 10
-	runs: int = 5
+	runs: int = 1
 
 	def __post_init__(self):
 		self.parStats: dict[int, dict[int, Stats]] = {w: {} for w in self.workerCounts}
@@ -82,9 +86,9 @@ class BenchmarkList:
 			return "eukleidovská vzdálenost"
 		return "kosinusová podobnost"
 
-	def plotBuild(self):
-		plt.clf()
-		getBuildLine(list(self.seqStats.values())).plot()
+	def plotBuild(self, seqStats: list[Stats]):
+		fig, _ = plt.subplots(figsize=(12, 7))
+		getBuildLine(seqStats).plot()
 
 		for w in self.workerCounts:
 			getBuildLine(list(self.parStats[w].values())).plot()
@@ -95,9 +99,12 @@ class BenchmarkList:
 		plt.ylabel("Čas stavby (s)")
 		plt.show()
 
-	def plotRecall(self, trainCount: int):
-		plt.clf()
-		self.seqStats[trainCount].getRecallLine().plot()
+	def plotBuildSelf(self):
+		self.plotBuild(list(self.seqStats.values()))
+
+	def plotRecall(self, seqStats: dict[int, Stats], trainCount: int):
+		fig, _ = plt.subplots(figsize=(12, 7))
+		seqStats[trainCount].getRecallLine().plot()
 
 		for w in self.workerCounts:
 			self.parStats[w][trainCount].getRecallLine().plot()
@@ -108,7 +115,13 @@ class BenchmarkList:
 		plt.ylabel("Počet dotazů za sekundu (1/s)")
 		plt.show()
 
+	def plotRecallSelf(self, trainCount: int):
+		self.plotRecall(self.seqStats, trainCount)
+
 	def run(self):
+		if len(self.seqStats) > 0:
+			return
+
 		for trainCount in self.trainCounts:
 			dataset = h.Dataset(
 				self.dim, self.k, 105, self.space, self.simdType, max(trainCount // 10, 1), trainCount
@@ -122,14 +135,29 @@ class BenchmarkList:
 			for w in self.workerCounts:
 				self.parStats[w][trainCount] = Stats(b.getParallel(w))
 
-def main():
-	b = BenchmarkList(
-		25, 200, [10, 50, 100, 200, 400], 16, h.SIMDType.NONE, h.Space.EUCLIDEAN,
-		[100, 500, 1000, 2000], [1, 2, 3, 4]
+	def runAndPlot(self, o = None):
+		self.run()
+
+		if o is None:
+			self.plotBuildSelf()
+			self.plotRecallSelf(2000)
+		else:
+			self.plotBuild(list(o.seqStats.values()))
+			self.plotRecall(o.seqStats, 2000)
+
+def getBenchmarkList(simdType: h.SIMDType, space: h.Space):
+	return BenchmarkList(
+		dim=25, efConstruction=200, efSearchValues=[10, 50, 100, 200, 400], mMax=16,
+		simdType=simdType, space=space, trainCounts=[100, 500, 1000, 2000],
+		workerCounts=[1, 2, 3, 4]
 	)
-	b.run()
-	b.plotBuild()
-	b.plotRecall(2000)
+
+def main():
+	angularNoSIMD = getBenchmarkList(h.SIMDType.NONE, h.Space.ANGULAR)
+	angularNoSIMD.runAndPlot()
+	angularBestSIMD = getBenchmarkList(h.SIMDType.BEST, h.Space.ANGULAR)
+	angularBestSIMD.run()
+	angularNoSIMD.runAndPlot(angularBestSIMD)
 
 if __name__ == "__main__":
 	main()

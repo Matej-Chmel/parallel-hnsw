@@ -36,6 +36,7 @@ namespace chm {
 
 	SIMDType getBestSIMDType();
 	SIMDType getSIMDType(std::string s);
+	std::string SIMDTypeToStr(const SIMDType s);
 
 	struct FunctionInfo {
 		const DistanceFunction f;

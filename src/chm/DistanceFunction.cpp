@@ -32,6 +32,23 @@ namespace chm {
 		throw std::runtime_error("Invalid SIMD type.");
 	}
 
+	std::string SIMDTypeToStr(const SIMDType s) {
+		switch(s) {
+			case SIMDType::AVX:
+				return "avx";
+			case SIMDType::AVX512:
+				return "avx512";
+			case SIMDType::BEST:
+				return SIMDTypeToStr(getBestSIMDType());
+			case SIMDType::NONE:
+				return "none";
+			case SIMDType::SSE:
+				return "sse";
+			default:
+				throw std::runtime_error("Invalid SIMD type.");
+		}
+	}
+
 	FunctionInfo::FunctionInfo(const DistanceFunction f, const char* const name) : f(f), name(name) {}
 
 	DistanceInfo::DistanceInfo(const size_t dimLeft, const FunctionInfo funcInfo)

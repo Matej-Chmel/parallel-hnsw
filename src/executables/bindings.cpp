@@ -10,6 +10,7 @@ namespace chm {
 
 	PYBIND11_MODULE(parallel_hnsw, m) {
 		m.def("getBestSIMDType", getBestSIMDType);
+		m.def("SIMDTypeToStr", SIMDTypeToStr);
 		m.doc() = "Python bindings for parallel-hnsw.";
 
 		py::class_<BenchmarkStats>(m, "BenchmarkStats")
