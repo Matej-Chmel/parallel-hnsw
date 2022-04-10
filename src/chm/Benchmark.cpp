@@ -191,6 +191,11 @@ namespace chm {
 	}
 
 	Benchmark& Benchmark::run(std::ostream& s) {
+		if(!this->buildElapsed.empty()) {
+			s << "Skipping:\n" <<this->getString() << '\n';
+			return *this;
+		}
+
 		Timer timer{};
 
 		for(size_t buildIdx = 0; buildIdx < this->runsCount; buildIdx++) {

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <pybind11/chrono.h>
 #include <pybind11/iostream.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -72,8 +73,8 @@ namespace chm {
 			})
 			.def_property_readonly("dataset", &Benchmark::getDataset)
 			.def_readonly("parallel", &Benchmark::parallel)
-			.def_readonly("runsCount", &Benchmark::runsCount)
-			.def_readonly("workerCount", &Benchmark::workerCount);
+			.def_readonly("runs", &Benchmark::runsCount)
+			.def_readonly("workers", &Benchmark::workerCount);
 
 		py::add_ostream_redirect(m, "ostream");
 	}
