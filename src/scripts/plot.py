@@ -64,6 +64,35 @@ def getBuildLine(statsList: list[Stats]):
 		raise AppError("Name mismatch.")
 	return Line(statsList[0].name, sorted([s.getBuildPoint() for s in statsList], key=lambda p: p.x))
 
+def getMetric(space: h.Space):
+	if space == h.Space.EUCLIDEAN:
+		return "eukleidovská vzdálenost"
+	return "kosinusová podobnost"
+
+def plotBuild(dim: int, metric: str, *statsCol: list[Stats]):
+	fig, _ = plt.subplots(figsize=(12, 7))
+
+	for s in statsCol:
+		getBuildLine(s).plot()
+
+	plt.legend()
+	plt.title(f"Dimenze: {dim}, metrika: {metric}")
+	plt.xlabel("Počet prvků při stavbě")
+	plt.ylabel("Čas stavby (s)")
+	plt.show()
+
+def plotRecall(dim: int, metric: str, trainCount: int, *stats: Stats):
+	fig, _ = plt.subplots(figsize=(12, 7))
+
+	for s in stats:
+		s.getRecallLine().plot()
+
+	plt.legend()
+	plt.title(f"Dimenze: {dim}, metrika: {metric}, počet prvků: {trainCount}")
+	plt.xlabel("Přesnost")
+	plt.ylabel("Počet dotazů za sekundu (1/s)")
+	plt.show()
+
 @dataclass
 class BenchmarkList:
 	dim: int
@@ -81,42 +110,24 @@ class BenchmarkList:
 		self.parStats: dict[int, dict[int, Stats]] = {w: {} for w in self.workerCounts}
 		self.seqStats: dict[int, Stats] = {}
 
-	def getMetricStr(self):
-		if self.space == h.Space.EUCLIDEAN:
-			return "eukleidovská vzdálenost"
-		return "kosinusová podobnost"
+	def getParBuildStats(self, trainCount: int = None):
+		return (
+			[list(self.parStats[w].values()) for w in self.workerCounts]
+			if trainCount is None
+			else [self.parStats[w][trainCount] for w in self.workerCounts]
+		)
 
-	def plotBuild(self, seqStats: list[Stats]):
-		fig, _ = plt.subplots(figsize=(12, 7))
-		getBuildLine(seqStats).plot()
+	def getSeqBuildStats(self, trainCount: int = None):
+		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
 
-		for w in self.workerCounts:
-			getBuildLine(list(self.parStats[w].values())).plot()
+	def plotBuild(self):
+		plotBuild(self.dim, getMetric(self.space), self.getSeqBuildStats(), *self.getParBuildStats())
 
-		plt.legend()
-		plt.title(f"Dimenze: {self.dim}, metrika: {self.getMetricStr()}")
-		plt.xlabel("Počet prvků při stavbě")
-		plt.ylabel("Čas stavby (s)")
-		plt.show()
-
-	def plotBuildSelf(self):
-		self.plotBuild(list(self.seqStats.values()))
-
-	def plotRecall(self, seqStats: dict[int, Stats], trainCount: int):
-		fig, _ = plt.subplots(figsize=(12, 7))
-		seqStats[trainCount].getRecallLine().plot()
-
-		for w in self.workerCounts:
-			self.parStats[w][trainCount].getRecallLine().plot()
-
-		plt.legend()
-		plt.title(f"Dimenze: {self.dim}, metrika: {self.getMetricStr()}, počet prvků: {trainCount}")
-		plt.xlabel("Přesnost")
-		plt.ylabel("Počet dotazů za sekundu (1/s)")
-		plt.show()
-
-	def plotRecallSelf(self, trainCount: int):
-		self.plotRecall(self.seqStats, trainCount)
+	def plotRecall(self, trainCount: int):
+		plotRecall(
+			self.dim, getMetric(self.space), trainCount, self.seqStats[trainCount],
+			*[self.parStats[w][trainCount] for w in self.workerCounts]
+		)
 
 	def run(self):
 		if len(self.seqStats) > 0:
@@ -135,16 +146,6 @@ class BenchmarkList:
 			for w in self.workerCounts:
 				self.parStats[w][trainCount] = Stats(b.getParallel(w))
 
-	def runAndPlot(self, o = None):
-		self.run()
-
-		if o is None:
-			self.plotBuildSelf()
-			self.plotRecallSelf(2000)
-		else:
-			self.plotBuild(list(o.seqStats.values()))
-			self.plotRecall(o.seqStats, 2000)
-
 def getBenchmarkList(simdType: h.SIMDType, space: h.Space):
 	return BenchmarkList(
 		dim=25, efConstruction=200, efSearchValues=[10, 50, 100, 200, 400], mMax=16,
@@ -154,10 +155,29 @@ def getBenchmarkList(simdType: h.SIMDType, space: h.Space):
 
 def main():
 	angularNoSIMD = getBenchmarkList(h.SIMDType.NONE, h.Space.ANGULAR)
-	angularNoSIMD.runAndPlot()
+	angularNoSIMD.run()
+	angularNoSIMD.plotBuild()
+	angularNoSIMD.plotRecall(2000)
+
 	angularBestSIMD = getBenchmarkList(h.SIMDType.BEST, h.Space.ANGULAR)
 	angularBestSIMD.run()
-	angularNoSIMD.runAndPlot(angularBestSIMD)
+
+	plotBuild(
+		angularBestSIMD.dim,
+		getMetric(angularBestSIMD.space),
+		angularBestSIMD.getSeqBuildStats(),
+		angularNoSIMD.getSeqBuildStats(),
+		*angularNoSIMD.getParBuildStats()
+	)
+
+	plotRecall(
+		angularBestSIMD.dim,
+		getMetric(angularBestSIMD.space),
+		2000,
+		angularBestSIMD.getSeqBuildStats(2000),
+		angularNoSIMD.getSeqBuildStats(2000),
+		*angularNoSIMD.getParBuildStats(2000)
+	)
 
 if __name__ == "__main__":
 	main()
