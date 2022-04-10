@@ -1,9 +1,24 @@
 from dataclasses import dataclass
+from functools import cached_property
 import parallel_hnsw as h
 from matplotlib import pyplot as plt
 
 class AppError(Exception):
 	pass
+
+@dataclass
+class Config:
+	dim: int
+	efConstruction: int
+	efSearchValues: list[int]
+	mMax: int
+	runs: int
+	trainCounts: list[int]
+	workerCounts: list[int]
+
+	@cached_property
+	def maxTrainCount(self):
+		return max(self.trainCounts)
 
 @dataclass
 class Point:
@@ -50,12 +65,12 @@ def getAvailableSIMD():
 	best = h.getBestSIMDType()
 
 	if best == h.SIMDType.AVX512:
-		return [h.SIMDType.AVX512, h.SIMDType.AVX, h.SIMDType.SSE, h.SIMDType.NONE]
+		return [h.SIMDType.AVX512, h.SIMDType.AVX, h.SIMDType.SSE,]
 	if best == h.SIMDType.AVX:
-		return [h.SIMDType.AVX, h.SIMDType.SSE, h.SIMDType.NONE]
+		return [h.SIMDType.AVX, h.SIMDType.SSE]
 	if best == h.SIMDType.SSE:
-		return [h.SIMDType.SSE, h.SIMDType.NONE]
-	return [h.SIMDType.NONE]
+		return [h.SIMDType.SSE]
+	return []
 
 def getBuildLine(statsList: list[Stats]):
 	if not statsList:
@@ -99,29 +114,29 @@ class BenchmarkList:
 	efConstruction: int
 	efSearchValues: list[int]
 	mMax: int
+	runs: int
 	simdType: h.SIMDType
 	space: h.Space
 	trainCounts: list[int]
 	workerCounts: list[int]
 	k: int = 10
-	runs: int = 1
 
 	def __post_init__(self):
 		self.parStats: dict[int, dict[int, Stats]] = {w: {} for w in self.workerCounts}
 		self.seqStats: dict[int, Stats] = {}
 
-	def getParBuildStats(self, trainCount: int = None):
+	def getParStats(self, trainCount: int = None):
 		return (
 			[list(self.parStats[w].values()) for w in self.workerCounts]
 			if trainCount is None
 			else [self.parStats[w][trainCount] for w in self.workerCounts]
 		)
 
-	def getSeqBuildStats(self, trainCount: int = None):
+	def getSeqStats(self, trainCount: int = None):
 		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
 
 	def plotBuild(self):
-		plotBuild(self.dim, getMetric(self.space), self.getSeqBuildStats(), *self.getParBuildStats())
+		plotBuild(self.dim, getMetric(self.space), self.getSeqStats(), *self.getParStats())
 
 	def plotRecall(self, trainCount: int):
 		plotRecall(
@@ -146,38 +161,60 @@ class BenchmarkList:
 			for w in self.workerCounts:
 				self.parStats[w][trainCount] = Stats(b.getParallel(w))
 
-def getBenchmarkList(simdType: h.SIMDType, space: h.Space):
-	return BenchmarkList(
-		dim=25, efConstruction=200, efSearchValues=[10, 50, 100, 200, 400], mMax=16,
-		simdType=simdType, space=space, trainCounts=[100, 500, 1000, 2000],
-		workerCounts=[1, 2, 3, 4]
+def getBenchmarkList(cfg: Config, simdType: h.SIMDType, space: h.Space):
+	res = BenchmarkList(
+		dim=cfg.dim, efConstruction=cfg.efConstruction, efSearchValues=cfg.efSearchValues,
+		mMax=cfg.mMax, runs=cfg.runs, simdType=simdType, space=space, trainCounts=cfg.trainCounts,
+		workerCounts=cfg.workerCounts
 	)
+	res.run()
+	return res
 
-def main():
-	angularNoSIMD = getBenchmarkList(h.SIMDType.NONE, h.Space.ANGULAR)
-	angularNoSIMD.run()
-	angularNoSIMD.plotBuild()
-	angularNoSIMD.plotRecall(2000)
+def run(cfg: Config):
+	runForSpace(cfg, h.Space.EUCLIDEAN)
+	runForSpace(cfg, h.Space.ANGULAR)
 
-	angularBestSIMD = getBenchmarkList(h.SIMDType.BEST, h.Space.ANGULAR)
-	angularBestSIMD.run()
+def runForSpace(cfg: Config, space: h.Space):
+	noSIMDBenchmarks = getBenchmarkList(cfg, h.SIMDType.NONE, space)
+	noSIMDBenchmarks.plotBuild()
+	noSIMDBenchmarks.plotRecall(cfg.maxTrainCount)
+
+	availableSIMD = getAvailableSIMD()
+
+	if not availableSIMD:
+		return
+
+	SIMDBenchmarks = {SIMD: getBenchmarkList(cfg, SIMD, space) for SIMD in availableSIMD}
+	bestSIMDBenchmarks = SIMDBenchmarks[h.getBestSIMDType()]
 
 	plotBuild(
-		angularBestSIMD.dim,
-		getMetric(angularBestSIMD.space),
-		angularBestSIMD.getSeqBuildStats(),
-		angularNoSIMD.getSeqBuildStats(),
-		*angularNoSIMD.getParBuildStats()
+		cfg.dim, getMetric(space),
+		noSIMDBenchmarks.getSeqStats(),
+		*[b.getSeqStats() for b in SIMDBenchmarks.values()]
 	)
-
 	plotRecall(
-		angularBestSIMD.dim,
-		getMetric(angularBestSIMD.space),
-		2000,
-		angularBestSIMD.getSeqBuildStats(2000),
-		angularNoSIMD.getSeqBuildStats(2000),
-		*angularNoSIMD.getParBuildStats(2000)
+		cfg.dim, getMetric(space), cfg.maxTrainCount,
+		noSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
+		*[b.getSeqStats(cfg.maxTrainCount) for b in SIMDBenchmarks.values()]
 	)
+	plotBuild(
+		cfg.dim, getMetric(space),
+		bestSIMDBenchmarks.getSeqStats(),
+		*noSIMDBenchmarks.getParStats()
+	)
+	plotRecall(
+		cfg.dim, getMetric(space), cfg.maxTrainCount,
+		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
+		*noSIMDBenchmarks.getParStats(cfg.maxTrainCount)
+	)
+	bestSIMDBenchmarks.plotBuild()
+	bestSIMDBenchmarks.plotRecall(cfg.maxTrainCount)
+
+def main():
+	run(Config(
+		dim=25, efConstruction=200, efSearchValues=[10, 20, 40, 80, 120, 200, 400, 600],
+		mMax=16, runs=1, trainCounts=[100, 500, 1000, 2000], workerCounts=[1, 2, 3, 4]
+	))
 
 if __name__ == "__main__":
 	main()
