@@ -1,0 +1,28 @@
+\begin{figure}
+	\begin{center}
+		\ref{@LABEL@Legend}
+		\begin{tikzpicture}
+			\begin{groupplot}[
+				group style={
+					group size=@GROUP_SIZE@,
+					vertical sep=3cm,
+					ylabels at=edge left
+				},
+				height=0.5\textwidth,
+				width=0.5\textwidth,@YMODE@
+				xlabel={@XLABEL@},
+				ylabel={@YLABEL@},
+				xmajorgrids=true,
+				ymajorgrids=true,
+				grid style=dashed,
+				legend to name=@LABEL@Legend,
+				legend columns=-1
+			]
+				@GROUP_PLOTS@
+				\legend{@LEGEND@}
+			\end{groupplot}
+		\end{tikzpicture}
+		\caption@SHORT_CAPTION@{@LONG_CAPTION@ -- @BEST_DIRECTION@}
+		\label{fig:@LABEL@}
+	\end{center}
+\end{figure}
