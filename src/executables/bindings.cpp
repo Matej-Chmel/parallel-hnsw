@@ -65,11 +65,12 @@ namespace chm {
 			.def("getBuildStats", &Benchmark::getBuildStats)
 			.def("getParallel", &Benchmark::getParallel, py::arg("workerCount"))
 			.def("getQueryStats", &Benchmark::getQueryStats)
+			.def("hasQueryStats", &Benchmark::hasQueryStats)
 			.def("print", [](const Benchmark& b) {
 				b.print(std::cout);
 			})
-			.def("run", [](Benchmark& b) -> Benchmark& {
-				(void)b.run(std::cout);
+			.def("run", [](Benchmark& b, const bool runQueries) -> Benchmark& {
+				(void)b.run(runQueries, std::cout);
 				return b;
 			})
 			.def_property_readonly("dataset", &Benchmark::getDataset)

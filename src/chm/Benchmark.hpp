@@ -44,6 +44,8 @@ namespace chm {
 		std::string indexStr;
 		const uint levelGenSeed;
 
+		void runQueries(const IndexPtr& index, std::ostream& s);
+
 	public:
 		const bool parallel;
 		const size_t runsCount;
@@ -59,8 +61,9 @@ namespace chm {
 		Benchmark getParallel(const size_t workerCount) const;
 		std::string getString() const;
 		std::map<uint, QueryBenchmarkStats> getQueryStats() const;
+		bool hasQueryStats() const;
 		void print(std::ostream& s) const;
-		Benchmark& run(std::ostream& s);
+		Benchmark& run(const bool runQueries, std::ostream& s);
 	};
 
 	template<typename T> long long convert(chr::nanoseconds& t);

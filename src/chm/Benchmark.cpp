@@ -73,6 +73,24 @@ namespace chm {
 	) : BenchmarkStats(avg, max, min), avgRecall(avgRecall), maxRecall(maxRecall),
 		minRecall(minRecall) {}
 
+	void Benchmark::runQueries(const IndexPtr& index, std::ostream& s) {
+		Timer timer{};
+
+		for(size_t i = 0; i < this->runsCount; i++)
+			for(auto& p : this->efsToBenchmarks) {
+				s << "Querying with efSearch = " << p.first << ".\n";
+
+				timer.reset();
+				auto queryRes = this->dataset->query(index, p.first);
+				const auto elapsed = timer.getElapsed();
+				p.second.emplace_back(elapsed, this->dataset->getRecall(queryRes->getIDs()));
+
+				s << "Completed in ";
+				prettyPrint(elapsed, s);
+				s << "\n\n";
+			}
+	}
+
 	Benchmark::Benchmark(
 		DatasetPtr dataset, const uint efConstruction,
 		const std::vector<uint>& efSearchValues, const uint levelGenSeed,
@@ -143,6 +161,10 @@ namespace chm {
 		return res;
 	}
 
+	bool Benchmark::hasQueryStats() const {
+		return !this->efsToBenchmarks.empty();
+	}
+
 	void Benchmark::print(std::ostream& s) const {
 		std::ios streamState(nullptr);
 		streamState.copyfmt(s);
@@ -190,7 +212,7 @@ namespace chm {
 		s.copyfmt(streamState);
 	}
 
-	Benchmark& Benchmark::run(std::ostream& s) {
+	Benchmark& Benchmark::run(const bool runQueries, std::ostream& s) {
 		if(!this->buildElapsed.empty()) {
 			s << "Skipping:\n" <<this->getString() << '\n';
 			return *this;
@@ -198,8 +220,8 @@ namespace chm {
 
 		Timer timer{};
 
-		for(size_t buildIdx = 0; buildIdx < this->runsCount; buildIdx++) {
-			s << "Building index.\n";
+		for(size_t i = 0; i < this->runsCount; i++) {
+			s << this->getString() << "\nBuilding index.\n";
 
 			timer.reset();
 			auto index = this->dataset->getIndex(
@@ -223,19 +245,8 @@ namespace chm {
 					throw std::runtime_error("Index string changed between runs.");
 			}
 
-			for(size_t queryIdx = 0; queryIdx < this->runsCount; queryIdx++)
-				for(auto& p : this->efsToBenchmarks) {
-					s << "Querying with efSearch = " << p.first << ".\n";
-
-					timer.reset();
-					auto queryRes = this->dataset->query(index, p.first);
-					const auto elapsed = timer.getElapsed();
-					p.second.emplace_back(elapsed, this->dataset->getRecall(queryRes->getIDs()));
-
-					s << "Completed in ";
-					prettyPrint(elapsed, s);
-					s << "\n\n";
-				}
+			if(runQueries)
+				this->runQueries(index, s);
 		}
 
 		return *this;

@@ -56,6 +56,8 @@ class BenchmarkList:
 		if len(self.seqStats) > 0:
 			return
 
+		maxTrainCount = max(self.trainCounts)
+
 		for trainCount in self.trainCounts:
 			dataset = h.Dataset(
 				self.dim, self.k, 105, self.space, self.simdType, max(trainCount // 10, 1), trainCount
@@ -64,10 +66,10 @@ class BenchmarkList:
 				dataset, self.efConstruction, self.efSearchValues,
 				200, self.mMax, False, self.runs
 			)
-			self.seqStats[trainCount] = Stats(b)
+			self.seqStats[trainCount] = Stats(b, trainCount == maxTrainCount)
 
 			for w in self.workerCounts:
-				self.parStats[w][trainCount] = Stats(b.getParallel(w))
+				self.parStats[w][trainCount] = Stats(b.getParallel(w), trainCount == maxTrainCount)
 
 @dataclass
 class Config:
@@ -178,11 +180,11 @@ class SpaceGroupPlots:
 	SIMDseq: GroupPlotPair = field(default_factory=GroupPlotPair)
 
 class Stats:
-	def __init__(self, b: h.Benchmark):
-		b.run()
+	def __init__(self, b: h.Benchmark, runQueries: bool):
+		b.run(runQueries)
 		self.build: h.BenchmarkStats = b.getBuildStats()
 		self.name = f"Paralelní-{b.workers}" if b.parallel else "Sekvenční"
-		self.query: dict[int, h.QueryBenchmarkStats] = b.getQueryStats()
+		self.query: dict[int, h.QueryBenchmarkStats] = b.getQueryStats() if runQueries else None
 
 		if b.dataset.SIMD != h.SIMDType.NONE:
 			self.name += f"-{h.SIMDTypeToStr(b.dataset.SIMD).upper()}"
@@ -194,6 +196,9 @@ class Stats:
 		return Point(self.trainCount, self.build.avg.total_seconds())
 
 	def getRecallLine(self):
+		if self.query is None:
+			raise AppError("Query stats are not available.")
+
 		return Line(self.name, sorted([
 			Point(v.avgRecall, 1 / (v.avg.total_seconds() / self.testCount))
 			for v in self.query.values()
@@ -393,7 +398,7 @@ def writeLatexPlots(
 def main():
 	run(Config(
 		dim=25, efConstruction=200, efSearchValues=[10, 20, 40, 80, 120, 200, 400, 600],
-		mMax=16, runs=1,
+		mMax=16, runs=5,
 		trainCounts=range(500, 5001, 500),
 		workerCounts=[1, 2, 3, 4]
 	))
