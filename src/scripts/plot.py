@@ -73,10 +73,14 @@ class BenchmarkList:
 				dataset, self.efConstruction, self.efSearchValues,
 				200, self.mMax, False, self.runs
 			)
+
 			self.seqStats[trainCount] = Stats(b, trainCount == maxTrainCount)
 
 			for w in self.workerCounts:
-				self.parStats[w][trainCount] = Stats(b.getParallel(w), trainCount == maxTrainCount)
+				if self.simdType == h.SIMDType.NONE or w in [2, 4]:
+					self.parStats[w][trainCount] = Stats(
+						b.getParallel(w), trainCount == maxTrainCount
+					)
 
 @dataclass
 class Config:
@@ -87,10 +91,6 @@ class Config:
 	runs: int
 	trainCounts: list[int]
 	workerCounts: list[int]
-
-	@cached_property
-	def maxWorkerCount(self):
-		return max(self.workerCounts)
 
 	@cached_property
 	def maxTrainCount(self):
@@ -188,10 +188,10 @@ class Plot:
 
 @dataclass
 class SpaceGroupPlots:
-	bestSIMD: GroupPlotPair = field(default_factory=GroupPlotPair)
 	noSIMD: GroupPlotPair = field(default_factory=GroupPlotPair)
 	SIMDadv: GroupPlotPair = field(default_factory=GroupPlotPair)
 	SIMDseq: GroupPlotPair = field(default_factory=GroupPlotPair)
+	SIMDpar: GroupPlotPair = field(default_factory=GroupPlotPair)
 
 class Stats:
 	def __init__(self, b: h.Benchmark, runQueries: bool):
@@ -310,21 +310,21 @@ def plotForSpace(b: FinalBenchmarks, cfg: Config, plotsDir: Path):
 		b.noSIMD.getWorkerStats(2, cfg.maxTrainCount),
 		b.noSIMD.getWorkerStats(3, cfg.maxTrainCount)
 	)
-	res.bestSIMD.build = plotBuild(
+	res.SIMDpar.build = plotBuild(
 		cfg.dim, czechMetric, plotsDir,
-		f"best_SIMD_build_{englishMetric}",
-		b.noSIMD.getSeqStats(),
-		b.noSIMD.getWorkerStats(cfg.maxWorkerCount),
-		*b.getSeqSIMDStats(),
-		*b.getWorkerSIMDStats(cfg.maxWorkerCount)
+		f"SIMD_parallel_build_{englishMetric}",
+		b.noSIMD.getWorkerStats(2),
+		b.noSIMD.getWorkerStats(4),
+		*b.getWorkerSIMDStats(2),
+		*b.getWorkerSIMDStats(4)
 	)
-	res.bestSIMD.recall = plotRecall(
+	res.SIMDpar.recall = plotRecall(
 		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
-		f"best_SIMD_recall_{englishMetric}",
-		b.noSIMD.getSeqStats(cfg.maxTrainCount),
-		b.noSIMD.getWorkerStats(cfg.maxWorkerCount, cfg.maxTrainCount),
-		*b.getSeqSIMDStats(cfg.maxTrainCount),
-		*b.getWorkerSIMDStats(cfg.maxWorkerCount, cfg.maxTrainCount)
+		f"SIMD_parallel_recall_{englishMetric}",
+		b.noSIMD.getWorkerStats(2, cfg.maxTrainCount),
+		b.noSIMD.getWorkerStats(4, cfg.maxTrainCount),
+		*b.getWorkerSIMDStats(2, cfg.maxTrainCount),
+		*b.getWorkerSIMDStats(4, cfg.maxTrainCount)
 	)
 	return res
 
@@ -409,8 +409,8 @@ def writeLatexPlots(
 	buildPlot.plotLabel = "SIMDadvBuild"
 	buildPlot.writeLatex(plotsDir, template)
 
-	buildPlot.groups=[euclideanPlots.bestSIMD.build, angularPlots.bestSIMD.build]
-	buildPlot.plotLabel = "bestSIMDBuild"
+	buildPlot.groups=[euclideanPlots.SIMDpar.build, angularPlots.SIMDpar.build]
+	buildPlot.plotLabel = "SIMDparBuild"
 	buildPlot.writeLatex(plotsDir, template)
 
 	recallPlot.groups=[euclideanPlots.SIMDseq.recall, angularPlots.SIMDseq.recall]
@@ -421,8 +421,8 @@ def writeLatexPlots(
 	recallPlot.plotLabel = "SIMDadvRecall"
 	recallPlot.writeLatex(plotsDir, template)
 
-	recallPlot.groups=[euclideanPlots.bestSIMD.recall, angularPlots.bestSIMD.recall]
-	recallPlot.plotLabel = "bestSIMDRecall"
+	recallPlot.groups=[euclideanPlots.SIMDpar.recall, angularPlots.SIMDpar.recall]
+	recallPlot.plotLabel = "SIMDparRecall"
 	recallPlot.writeLatex(plotsDir, template)
 
 def main():
