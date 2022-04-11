@@ -389,6 +389,18 @@ def writeLatexPlots(
 	)
 	buildPlot.writeLatex(plotsDir, template)
 
+	recallPlot = Plot(
+		bestDirection="Lepší výsledky směrem k pravému hornímu rohu grafu.",
+		caption="Závislost počtu zpracovaných dotazů za sekundu na přesnosti.",
+		groups=[euclideanPlots.noSIMD.recall, angularPlots.noSIMD.recall],
+		plotLabel="NoSIMDRecall", xLabel="Přesnost",
+		yLabel=r"Počet dotazů za sekundu $(\frac{1}{s})$"
+	)
+	recallPlot.writeLatex(plotsDir, template)
+
+	if euclideanPlots.SIMDseq.build is None:
+		return
+
 	buildPlot.groups=[euclideanPlots.SIMDseq.build, angularPlots.SIMDseq.build]
 	buildPlot.plotLabel = "SIMDseqBuild"
 	buildPlot.writeLatex(plotsDir, template)
@@ -400,15 +412,6 @@ def writeLatexPlots(
 	buildPlot.groups=[euclideanPlots.bestSIMD.build, angularPlots.bestSIMD.build]
 	buildPlot.plotLabel = "bestSIMDBuild"
 	buildPlot.writeLatex(plotsDir, template)
-
-	recallPlot = Plot(
-		bestDirection="Lepší výsledky směrem k pravému hornímu rohu grafu.",
-		caption="Závislost počtu zpracovaných dotazů za sekundu na přesnosti.",
-		groups=[euclideanPlots.noSIMD.recall, angularPlots.noSIMD.recall],
-		plotLabel="NoSIMDRecall", xLabel="Přesnost",
-		yLabel=r"Počet dotazů za sekundu $(\frac{1}{s})$"
-	)
-	recallPlot.writeLatex(plotsDir, template)
 
 	recallPlot.groups=[euclideanPlots.SIMDseq.recall, angularPlots.SIMDseq.recall]
 	recallPlot.plotLabel = "SIMDseqRecall"
