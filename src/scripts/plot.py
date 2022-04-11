@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
+import datetime
 from functools import cached_property
 import parallel_hnsw as h
 from pathlib import Path
 from matplotlib import pyplot as plt
+import time
 
 BACK_SLASH = "\\"
 N = "\n"
@@ -10,6 +12,62 @@ TAB = "\t"
 
 class AppError(Exception):
 	pass
+
+@dataclass
+class BenchmarkList:
+	dim: int
+	efConstruction: int
+	efSearchValues: list[int]
+	mMax: int
+	runs: int
+	simdType: h.SIMDType
+	space: h.Space
+	trainCounts: list[int]
+	workerCounts: list[int]
+	k: int = 10
+
+	def __post_init__(self):
+		self.parStats: dict[int, dict[int, Stats]] = {w: {} for w in self.workerCounts}
+		self.seqStats: dict[int, Stats] = {}
+
+	def getParStats(self, trainCount: int = None):
+		return (
+			[list(self.parStats[w].values()) for w in self.workerCounts]
+			if trainCount is None
+			else [self.parStats[w][trainCount] for w in self.workerCounts]
+		)
+
+	def getSeqStats(self, trainCount: int = None):
+		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
+
+	def plotBuild(self, plotsDir: Path, name: str):
+		return plotBuild(
+			self.dim, getCzechMetric(self.space), plotsDir, name,
+			self.getSeqStats(), *self.getParStats(),
+		)
+
+	def plotRecall(self, trainCount: int, plotsDir: Path, name: str):
+		return plotRecall(
+			self.dim, getCzechMetric(self.space), trainCount, plotsDir, name,
+			self.seqStats[trainCount], *[self.parStats[w][trainCount] for w in self.workerCounts]
+		)
+
+	def run(self):
+		if len(self.seqStats) > 0:
+			return
+
+		for trainCount in self.trainCounts:
+			dataset = h.Dataset(
+				self.dim, self.k, 105, self.space, self.simdType, max(trainCount // 10, 1), trainCount
+			)
+			b = h.Benchmark(
+				dataset, self.efConstruction, self.efSearchValues,
+				200, self.mMax, False, self.runs
+			)
+			self.seqStats[trainCount] = Stats(b)
+
+			for w in self.workerCounts:
+				self.parStats[w][trainCount] = Stats(b.getParallel(w))
 
 @dataclass
 class Config:
@@ -24,6 +82,18 @@ class Config:
 	@cached_property
 	def maxTrainCount(self):
 		return max(self.trainCounts)
+
+@dataclass
+class FinalBenchmarks:
+	space: h.Space
+	noSIMD: BenchmarkList = None
+	SIMD: dict[h.SIMDType, BenchmarkList] = None
+
+	def getBestSIMD(self):
+		return self.SIMD[h.getBestSIMDType()]
+
+	def isSIMDAvailable(self):
+		return self.SIMD is not None and len(self.SIMD)
 
 @dataclass
 class Point:
@@ -111,11 +181,11 @@ class Stats:
 	def __init__(self, b: h.Benchmark):
 		b.run()
 		self.build: h.BenchmarkStats = b.getBuildStats()
-		self.name = f"paralelní-{b.workers}" if b.parallel else "sekvenční"
+		self.name = f"Paralelní-{b.workers}" if b.parallel else "Sekvenční"
 		self.query: dict[int, h.QueryBenchmarkStats] = b.getQueryStats()
 
 		if b.dataset.SIMD != h.SIMDType.NONE:
-			self.name += f"-{h.SIMDTypeToStr(b.dataset.SIMD)}"
+			self.name += f"-{h.SIMDTypeToStr(b.dataset.SIMD).upper()}"
 
 		self.testCount = b.dataset.testCount
 		self.trainCount = b.dataset.trainCount
@@ -183,12 +253,96 @@ def plotBuild(dim: int, metric: str, plotsDir: Path, name: str, *statsCol: list[
 		plotsDir=plotsDir, name=name
 	)
 
+def plotForSpace(b: FinalBenchmarks, cfg: Config, plotsDir: Path):
+	czechMetric = getCzechMetric(b.space)
+	englishMetric = getEnglishMetric(b.space)
+	res = SpaceGroupPlots()
+
+	res.noSIMD.build = b.noSIMD.plotBuild(plotsDir, f"no_simd_build_{englishMetric}")
+	res.noSIMD.recall = b.noSIMD.plotRecall(
+		cfg.maxTrainCount, plotsDir, f"no_simd_recall_{englishMetric}"
+	)
+
+	if not b.isSIMDAvailable():
+		return res
+
+	bestSIMDBenchmarks = b.getBestSIMD()
+	res.SIMDseq.build = plotBuild(
+		cfg.dim, czechMetric, plotsDir, f"simd_sequential_build_{englishMetric}",
+		b.noSIMD.getSeqStats(),
+		*[b.getSeqStats() for b in b.SIMD.values()]
+	)
+	res.SIMDseq.recall = plotRecall(
+		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
+		f"simd_sequential_recall_{englishMetric}",
+		b.noSIMD.getSeqStats(cfg.maxTrainCount),
+		*[b.getSeqStats(cfg.maxTrainCount) for b in b.SIMD.values()]
+	)
+	res.SIMDadv.build = plotBuild(
+		cfg.dim, czechMetric, plotsDir,
+		f"bestSIMD_sequential_vs_noSIMD_parallel_build_{englishMetric}",
+		bestSIMDBenchmarks.getSeqStats(),
+		*b.noSIMD.getParStats()
+	)
+	res.SIMDadv.recall = plotRecall(
+		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
+		f"bestSIMD_sequential_vs_noSIMD_parallel_recall_{englishMetric}",
+		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
+		*b.noSIMD.getParStats(cfg.maxTrainCount)
+	)
+	res.bestSIMD.build = bestSIMDBenchmarks.plotBuild(plotsDir, f"best_simd_build_{englishMetric}")
+	res.bestSIMD.recall = bestSIMDBenchmarks.plotRecall(
+		cfg.maxTrainCount, plotsDir, f"best_simd_recall_{englishMetric}"
+	)
+	return res
+
 def plotRecall(dim: int, metric: str, trainCount: int, plotsDir: Path, name: str, *stats: Stats):
 	return plot(
 		[s.getRecallLine() for s in stats], dim=dim, metric=metric,
 		xLabel="Přesnost", yLabel="Počet dotazů za sekundu (1/s)",
 		plotsDir=plotsDir, name=name, trainCount=trainCount
 	)
+
+def run(cfg: Config):
+	begin = time.perf_counter()
+	angularBenchmarks, euclideanBenchmarks = runBenchmarks(cfg)
+	end = time.perf_counter()
+	print(f"Benchmarks ran for {datetime.timedelta(seconds=end - begin)}.")
+
+	src = Path(__file__).parents[1]
+	plotsDir = src / "plots"
+	plotsDir.mkdir(exist_ok=True)
+	angularPlots = plotForSpace(angularBenchmarks, cfg, plotsDir)
+	euclideanPlots = plotForSpace(euclideanBenchmarks, cfg, plotsDir)
+
+	writeLatexPlots(
+		angularPlots, euclideanPlots, plotsDir,
+		(src / "templates" / "groupPlots.txt").read_text(encoding="utf-8")
+	)
+
+def runBenchmarks(cfg: Config):
+	return runForSpace(cfg, h.Space.ANGULAR), runForSpace(cfg, h.Space.EUCLIDEAN)
+
+def runBenchmarkList(cfg: Config, simdType: h.SIMDType, space: h.Space):
+	res = BenchmarkList(
+		dim=cfg.dim, efConstruction=cfg.efConstruction, efSearchValues=cfg.efSearchValues,
+		mMax=cfg.mMax, runs=cfg.runs, simdType=simdType, space=space, trainCounts=cfg.trainCounts,
+		workerCounts=cfg.workerCounts
+	)
+	res.run()
+	return res
+
+def runForSpace(cfg: Config, space: h.Space):
+	res = FinalBenchmarks(space)
+	res.noSIMD = runBenchmarkList(cfg, h.SIMDType.NONE, space)
+
+	availableSIMD = getAvailableSIMD()
+
+	if not availableSIMD:
+		return res
+
+	res.SIMD = {SIMD: runBenchmarkList(cfg, SIMD, space) for SIMD in availableSIMD}
+	return res
 
 def writeLatexPlots(
 	angularPlots: SpaceGroupPlots, euclideanPlots: SpaceGroupPlots,
@@ -236,134 +390,12 @@ def writeLatexPlots(
 	recallPlot.plotLabel = "bestSIMDRecall"
 	recallPlot.writeLatex(plotsDir, template)
 
-@dataclass
-class BenchmarkList:
-	dim: int
-	efConstruction: int
-	efSearchValues: list[int]
-	mMax: int
-	runs: int
-	simdType: h.SIMDType
-	space: h.Space
-	trainCounts: list[int]
-	workerCounts: list[int]
-	k: int = 10
-
-	def __post_init__(self):
-		self.parStats: dict[int, dict[int, Stats]] = {w: {} for w in self.workerCounts}
-		self.seqStats: dict[int, Stats] = {}
-
-	def getParStats(self, trainCount: int = None):
-		return (
-			[list(self.parStats[w].values()) for w in self.workerCounts]
-			if trainCount is None
-			else [self.parStats[w][trainCount] for w in self.workerCounts]
-		)
-
-	def getSeqStats(self, trainCount: int = None):
-		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
-
-	def plotBuild(self, plotsDir: Path, name: str):
-		return plotBuild(
-			self.dim, getCzechMetric(self.space), plotsDir, name,
-			self.getSeqStats(), *self.getParStats(),
-		)
-
-	def plotRecall(self, trainCount: int, plotsDir: Path, name: str):
-		return plotRecall(
-			self.dim, getCzechMetric(self.space), trainCount, plotsDir, name,
-			self.seqStats[trainCount], *[self.parStats[w][trainCount] for w in self.workerCounts]
-		)
-
-	def run(self):
-		if len(self.seqStats) > 0:
-			return
-
-		for trainCount in self.trainCounts:
-			dataset = h.Dataset(
-				self.dim, self.k, 105, self.space, self.simdType, max(trainCount // 10, 1), trainCount
-			)
-			b = h.Benchmark(
-				dataset, self.efConstruction, self.efSearchValues,
-				200, self.mMax, False, self.runs
-			)
-			self.seqStats[trainCount] = Stats(b)
-
-			for w in self.workerCounts:
-				self.parStats[w][trainCount] = Stats(b.getParallel(w))
-
-def getBenchmarkList(cfg: Config, simdType: h.SIMDType, space: h.Space):
-	res = BenchmarkList(
-		dim=cfg.dim, efConstruction=cfg.efConstruction, efSearchValues=cfg.efSearchValues,
-		mMax=cfg.mMax, runs=cfg.runs, simdType=simdType, space=space, trainCounts=cfg.trainCounts,
-		workerCounts=cfg.workerCounts
-	)
-	res.run()
-	return res
-
-def run(cfg: Config):
-	src = Path(__file__).parents[1]
-	plotsDir = src / "plots"
-	plotsDir.mkdir(exist_ok=True)
-	euclideanPlots = runForSpace(cfg, h.Space.EUCLIDEAN, plotsDir)
-	angularPlots = runForSpace(cfg, h.Space.ANGULAR, plotsDir)
-	writeLatexPlots(
-		angularPlots, euclideanPlots, plotsDir,
-		(src / "templates" / "groupPlots.txt").read_text(encoding="utf-8")
-	)
-
-def runForSpace(cfg: Config, space: h.Space, plotsDir: Path):
-	res = SpaceGroupPlots()
-	noSIMDBenchmarks = getBenchmarkList(cfg, h.SIMDType.NONE, space)
-	res.noSIMD.build = noSIMDBenchmarks.plotBuild(plotsDir, f"no_simd_build_{getEnglishMetric(space)}")
-	res.noSIMD.recall = noSIMDBenchmarks.plotRecall(
-		cfg.maxTrainCount, plotsDir,
-		f"no_simd_recall_{getEnglishMetric(space)}"
-	)
-
-	availableSIMD = getAvailableSIMD()
-
-	if not availableSIMD:
-		return res
-
-	SIMDBenchmarks = {SIMD: getBenchmarkList(cfg, SIMD, space) for SIMD in availableSIMD}
-	bestSIMDBenchmarks = SIMDBenchmarks[h.getBestSIMDType()]
-
-	res.SIMDseq.build = plotBuild(
-		cfg.dim, getCzechMetric(space), plotsDir, f"simd_sequential_build_{getEnglishMetric(space)}",
-		noSIMDBenchmarks.getSeqStats(),
-		*[b.getSeqStats() for b in SIMDBenchmarks.values()]
-	)
-	res.SIMDseq.recall = plotRecall(
-		cfg.dim, getCzechMetric(space), cfg.maxTrainCount, plotsDir,
-		f"simd_sequential_recall_{getEnglishMetric(space)}",
-		noSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
-		*[b.getSeqStats(cfg.maxTrainCount) for b in SIMDBenchmarks.values()]
-	)
-	res.SIMDadv.build = plotBuild(
-		cfg.dim, getCzechMetric(space), plotsDir,
-		f"bestSIMD_sequential_vs_noSIMD_parallel_build_{getEnglishMetric(space)}",
-		bestSIMDBenchmarks.getSeqStats(),
-		*noSIMDBenchmarks.getParStats()
-	)
-	res.SIMDadv.recall = plotRecall(
-		cfg.dim, getCzechMetric(space), cfg.maxTrainCount, plotsDir,
-		f"bestSIMD_sequential_vs_noSIMD_parallel_recall_{getEnglishMetric(space)}",
-		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
-		*noSIMDBenchmarks.getParStats(cfg.maxTrainCount)
-	)
-	res.bestSIMD.build = bestSIMDBenchmarks.plotBuild(
-		plotsDir, f"best_simd_build_{getEnglishMetric(space)}"
-	)
-	res.bestSIMD.recall = bestSIMDBenchmarks.plotRecall(
-		cfg.maxTrainCount, plotsDir, f"best_simd_recall_{getEnglishMetric(space)}"
-	)
-	return res
-
 def main():
 	run(Config(
 		dim=25, efConstruction=200, efSearchValues=[10, 20, 40, 80, 120, 200, 400, 600],
-		mMax=16, runs=1, trainCounts=[100, 500, 1000, 2000], workerCounts=[1, 2, 3, 4]
+		mMax=16, runs=1,
+		trainCounts=range(500, 5001, 500),
+		workerCounts=[1, 2, 3, 4]
 	))
 
 if __name__ == "__main__":

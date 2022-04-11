@@ -1,4 +1,4 @@
-\begin{figure}
+\begin{figure}[H]
 	\begin{center}
 		\ref{@LABEL@Legend}
 		\begin{tikzpicture}
