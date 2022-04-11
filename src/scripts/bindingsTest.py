@@ -10,8 +10,8 @@ def main():
 		200, 16, False, 2
 	)
 
-	b.run().print()
-	b.getParallel(2).run().print()
+	b.run(True).print()
+	b.getParallel(2).run(True).print()
 	print(b)
 	print(b.dataset)
 

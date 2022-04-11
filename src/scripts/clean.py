@@ -1,25 +1,31 @@
+from ntpath import join
 from pathlib import Path
 import shutil
 
 def cleanProject(deleteVenv: bool):
 	repoDir = Path(__file__).parents[2]
-	src = repoDir / "src"
+	src = Path("src")
 
 	for path in [
-		"__pycache__", "cmakeBuild", src / "scripts" / "__pycache__",
-		src / "build", src / "dist", src / "parallel_hnsw.egg-info"
+		"__pycache__", "cmakeBuild", "CMakeLists.txt", src / "build", src / "dist",
+		src / "parallel_hnsw.egg-info", src / "plots", src / "scripts" / "__pycache__"
 	]:
-		deleteDir(repoDir / path)
+		deleteFile(repoDir / path)
 
 	if deleteVenv:
-		deleteDir(repoDir / ".venv")
+		deleteFile(repoDir / ".venv")
 
-def deleteDir(p: Path):
+def deleteFile(p: Path):
 	pathStr = f"[{p}] "
 
 	if p.exists():
 		try:
-			shutil.rmtree(p)
+			if p.is_dir():
+				shutil.rmtree(p)
+			elif p.is_file():
+				p.unlink()
+			else:
+				return print(f"{pathStr}Unknown file type.")
 			print(f"{pathStr}Deleted.")
 		except PermissionError:
 			print(f"{pathStr}Permission denied.")
