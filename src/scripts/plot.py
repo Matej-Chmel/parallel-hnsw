@@ -40,6 +40,13 @@ class BenchmarkList:
 	def getSeqStats(self, trainCount: int = None):
 		return list(self.seqStats.values()) if trainCount is None else self.seqStats[trainCount]
 
+	def getWorkerStats(self, w: int, trainCount: int = None):
+		return(
+			list(self.parStats[w].values())
+			if trainCount is None
+			else self.parStats[w][trainCount]
+		)
+
 	def plotBuild(self, plotsDir: Path, name: str):
 		return plotBuild(
 			self.dim, getCzechMetric(self.space), plotsDir, name,
@@ -80,6 +87,10 @@ class Config:
 	runs: int
 	trainCounts: list[int]
 	workerCounts: list[int]
+
+	@cached_property
+	def maxWorkerCount(self):
+		return max(self.workerCounts)
 
 	@cached_property
 	def maxTrainCount(self):
@@ -295,9 +306,21 @@ def plotForSpace(b: FinalBenchmarks, cfg: Config, plotsDir: Path):
 		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
 		*b.noSIMD.getParStats(cfg.maxTrainCount)
 	)
-	res.bestSIMD.build = bestSIMDBenchmarks.plotBuild(plotsDir, f"best_simd_build_{englishMetric}")
-	res.bestSIMD.recall = bestSIMDBenchmarks.plotRecall(
-		cfg.maxTrainCount, plotsDir, f"best_simd_recall_{englishMetric}"
+	res.bestSIMD.build = plotBuild(
+		cfg.dim, czechMetric, plotsDir,
+		f"best_simd_build_{englishMetric}",
+		b.noSIMD.getSeqStats(),
+		b.noSIMD.getWorkerStats(cfg.maxWorkerCount),
+		bestSIMDBenchmarks.getSeqStats(),
+		bestSIMDBenchmarks.getWorkerStats(cfg.maxWorkerCount)
+	)
+	res.bestSIMD.recall = plotRecall(
+		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
+		f"best_simd_recall_{englishMetric}",
+		b.noSIMD.getSeqStats(cfg.maxTrainCount),
+		b.noSIMD.getWorkerStats(cfg.maxWorkerCount, cfg.maxTrainCount),
+		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
+		bestSIMDBenchmarks.getWorkerStats(cfg.maxWorkerCount, cfg.maxTrainCount)
 	)
 	return res
 
@@ -399,7 +422,7 @@ def main():
 	run(Config(
 		dim=25, efConstruction=200, efSearchValues=[10, 20, 40, 80, 120, 200, 400, 600],
 		mMax=16, runs=5,
-		trainCounts=range(500, 5001, 500),
+		trainCounts=[1000, *range(5000, 30_001, 5000)],
 		workerCounts=[1, 2, 3, 4]
 	))
 
