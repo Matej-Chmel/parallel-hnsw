@@ -102,8 +102,11 @@ class FinalBenchmarks:
 	noSIMD: BenchmarkList = None
 	SIMD: dict[h.SIMDType, BenchmarkList] = None
 
-	def getBestSIMD(self):
-		return self.SIMD[h.getBestSIMDType()]
+	def getSeqSIMDStats(self, trainCount: int = None):
+		return [b.getSeqStats(trainCount) for b in self.SIMD.values()]
+
+	def getWorkerSIMDStats(self, w: int, trainCount: int = None):
+		return [b.getWorkerStats(w, trainCount) for b in self.SIMD.values()]
 
 	def isSIMDAvailable(self):
 		return self.SIMD is not None and len(self.SIMD)
@@ -274,53 +277,54 @@ def plotForSpace(b: FinalBenchmarks, cfg: Config, plotsDir: Path):
 	englishMetric = getEnglishMetric(b.space)
 	res = SpaceGroupPlots()
 
-	res.noSIMD.build = b.noSIMD.plotBuild(plotsDir, f"no_simd_build_{englishMetric}")
+	res.noSIMD.build = b.noSIMD.plotBuild(plotsDir, f"no_SIMD_build_{englishMetric}")
 	res.noSIMD.recall = b.noSIMD.plotRecall(
-		cfg.maxTrainCount, plotsDir, f"no_simd_recall_{englishMetric}"
+		cfg.maxTrainCount, plotsDir, f"no_SIMD_recall_{englishMetric}"
 	)
 
 	if not b.isSIMDAvailable():
 		return res
 
-	bestSIMDBenchmarks = b.getBestSIMD()
 	res.SIMDseq.build = plotBuild(
-		cfg.dim, czechMetric, plotsDir, f"simd_sequential_build_{englishMetric}",
+		cfg.dim, czechMetric, plotsDir, f"SIMD_sequential_build_{englishMetric}",
 		b.noSIMD.getSeqStats(),
-		*[b.getSeqStats() for b in b.SIMD.values()]
+		*b.getSeqSIMDStats()
 	)
 	res.SIMDseq.recall = plotRecall(
 		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
-		f"simd_sequential_recall_{englishMetric}",
+		f"SIMD_sequential_recall_{englishMetric}",
 		b.noSIMD.getSeqStats(cfg.maxTrainCount),
-		*[b.getSeqStats(cfg.maxTrainCount) for b in b.SIMD.values()]
+		*b.getSeqSIMDStats(cfg.maxTrainCount)
 	)
 	res.SIMDadv.build = plotBuild(
 		cfg.dim, czechMetric, plotsDir,
-		f"bestSIMD_sequential_vs_noSIMD_parallel_build_{englishMetric}",
-		bestSIMDBenchmarks.getSeqStats(),
-		*b.noSIMD.getParStats()
+		f"SIMD_sequential_vs_noSIMD_parallel_build_{englishMetric}",
+		*b.getSeqSIMDStats(),
+		b.noSIMD.getWorkerStats(2),
+		b.noSIMD.getWorkerStats(3)
 	)
 	res.SIMDadv.recall = plotRecall(
 		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
-		f"bestSIMD_sequential_vs_noSIMD_parallel_recall_{englishMetric}",
-		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
-		*b.noSIMD.getParStats(cfg.maxTrainCount)
+		f"SIMD_sequential_vs_noSIMD_parallel_recall_{englishMetric}",
+		*b.getSeqSIMDStats(cfg.maxTrainCount),
+		b.noSIMD.getWorkerStats(2, cfg.maxTrainCount),
+		b.noSIMD.getWorkerStats(3, cfg.maxTrainCount)
 	)
 	res.bestSIMD.build = plotBuild(
 		cfg.dim, czechMetric, plotsDir,
-		f"best_simd_build_{englishMetric}",
+		f"best_SIMD_build_{englishMetric}",
 		b.noSIMD.getSeqStats(),
 		b.noSIMD.getWorkerStats(cfg.maxWorkerCount),
-		bestSIMDBenchmarks.getSeqStats(),
-		bestSIMDBenchmarks.getWorkerStats(cfg.maxWorkerCount)
+		*b.getSeqSIMDStats(),
+		*b.getWorkerSIMDStats(cfg.maxWorkerCount)
 	)
 	res.bestSIMD.recall = plotRecall(
 		cfg.dim, czechMetric, cfg.maxTrainCount, plotsDir,
-		f"best_simd_recall_{englishMetric}",
+		f"best_SIMD_recall_{englishMetric}",
 		b.noSIMD.getSeqStats(cfg.maxTrainCount),
 		b.noSIMD.getWorkerStats(cfg.maxWorkerCount, cfg.maxTrainCount),
-		bestSIMDBenchmarks.getSeqStats(cfg.maxTrainCount),
-		bestSIMDBenchmarks.getWorkerStats(cfg.maxWorkerCount, cfg.maxTrainCount)
+		*b.getSeqSIMDStats(cfg.maxTrainCount),
+		*b.getWorkerSIMDStats(cfg.maxWorkerCount, cfg.maxTrainCount)
 	)
 	return res
 
@@ -420,7 +424,8 @@ def writeLatexPlots(
 
 def main():
 	run(Config(
-		dim=25, efConstruction=200, efSearchValues=[10, 20, 40, 80, 120, 200, 400, 600],
+		dim=25, efConstruction=200,
+		efSearchValues=[10, 13, 16, 20, 25, 30, 35, 40, 60, 80, 120, 200],
 		mMax=16, runs=5,
 		trainCounts=[1000, *range(5000, 30_001, 5000)],
 		workerCounts=[1, 2, 3, 4]
