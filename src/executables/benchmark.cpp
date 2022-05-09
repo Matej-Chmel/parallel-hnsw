@@ -15,8 +15,8 @@ int main() {
 			200, 16, false, 2
 		);
 
-		b.run(std::cout).print(std::cout);
-		b.getParallel(2).run(std::cout).print(std::cout);
+		b.run(true, std::cout).print(std::cout);
+		b.getParallel(2).run(true, std::cout).print(std::cout);
 
 	} catch(const std::exception& e) {
 		std::cerr << "[ERROR] " << e.what() << '\n';
