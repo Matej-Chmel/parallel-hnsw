@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import clean
@@ -25,6 +26,10 @@ def buildBindings(executable: Path, repoDir: Path):
 
 def buildNativeLib(executable: Path, repoDir: Path):
 	print("Building build system for native library.")
+
+	if shutil.which("cmake") is None:
+		raise AppError("CMake is not installed or it can't be found in environment variable Path.")
+
 	subprocess.call([executable, Path("src", "scripts", "formatCMakeTemplates.py")], cwd=repoDir)
 	cmakeBuildDir = repoDir / "cmakeBuild"
 	cmakeBuildDir.mkdir(exist_ok=True)
@@ -101,10 +106,9 @@ def runBindingsTest(executable: Path, repoDir: Path):
 def main():
 	try:
 		run()
-	except AppError as e:
-		print(f"[APP ERROR] {e}")
-	except subprocess.SubprocessError as e:
-		print(f"[SUBPROCESS ERROR] {e}")
+	except (AppError, subprocess.SubprocessError) as e:
+		print(f"[ERROR] {e}")
+		raise SystemExit(1)
 
 if __name__ == "__main__":
 	main()

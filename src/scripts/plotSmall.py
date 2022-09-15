@@ -9,4 +9,8 @@ def main():
 	))
 
 if __name__ == "__main__":
-	main()
+	try:
+		main()
+	except plot.AppError as e:
+		print(f"[ERROR] {e}")
+		raise SystemExit(1)
