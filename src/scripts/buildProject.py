@@ -57,7 +57,7 @@ def checkPythonVersion(args: Args):
 def cleanProject(args: Args):
 	if args.clean:
 		print("Cleaning project.")
-		clean.cleanProject(False)
+		clean.cleanProject()
 		print("Project cleaned.")
 
 def getArgs():

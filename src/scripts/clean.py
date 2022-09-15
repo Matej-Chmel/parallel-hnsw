@@ -1,8 +1,8 @@
-from ntpath import join
 from pathlib import Path
 import shutil
+import sys
 
-def cleanProject(deleteVenv: bool):
+def cleanProject():
 	repoDir = Path(__file__).parents[2]
 	src = Path("src")
 
@@ -12,7 +12,7 @@ def cleanProject(deleteVenv: bool):
 	]:
 		deleteFile(repoDir / path)
 
-	if deleteVenv:
+	if sys.base_prefix == sys.prefix:
 		deleteFile(repoDir / ".venv")
 
 def deleteFile(p: Path):
@@ -33,7 +33,7 @@ def deleteFile(p: Path):
 		print(f"{pathStr}Does not exist.")
 
 def main():
-	cleanProject(True)
+	cleanProject()
 
 if __name__ == "__main__":
 	main()
